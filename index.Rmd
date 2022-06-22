@@ -1,0 +1,25 @@
+--- 
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Mon Jun 20 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    theme: paper 
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+editor_options:
+  chunk_output_type: console
+subtitle: "UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+- This project contains the coding part of the Doctoral Dissertation of __Konstantinos Geles__   
+
+
+- This project contains the coding part of the Doctoral Dissertation of __Konstantinos Geles__  
