@@ -1,0 +1,144 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Thu Jun 30 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.2 Evaluation of piRNA expression in CRC cell lines and comparison to germline 
+
+Import Libraries
+```{r}
+#library(readxl)
+
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+```
+
+### sncRNA concetrations in CRC cell lines and testis samples
+
+After running the SPORTS workflow I import the length_distribution txt
+```{r}
+sncRNA_CRC_cells <- list.files("Chapter_1_2/",full.names = TRUE) %>% 
+    purrr::set_names(nm = ~basename(.x) %>% 
+                         str_remove_all("Human_|_Non_Treated|_length_distribution.txt")) %>% 
+    purrr::map(vroom::vroom) %>% 
+    bind_rows(.id = "Sample")
+```
+
+format the table
+```{r}
+sncRNA_CRC_cells_MG <- sncRNA_CRC_cells %>% 
+    filter(!str_detect(Class, c("Unmatch|Clean"))) %>% 
+    filter(Class != "Match_Genome") %>% 
+    mutate(Class = str_remove(Class, "_Match_Genome")) %>% 
+    separate(col = Class, into = c("DB", "Class"), sep = "-", extra = "merge") %>% 
+    mutate(Class = ifelse(is.na(Class), "Unannotated", Class))
+
+sncRNA_CRC_cells_MG_sum <- sncRNA_CRC_cells %>% 
+    filter(Class == "Match_Genome")
+```
+
+check results
+```{r}
+MG_SUM <- sncRNA_CRC_cells_MG_sum  %>% 
+    group_by( Sample) %>% 
+    summarise(sss=sum(Reads)) %>% 
+    mutate(sss = as.integer(sss))
+
+sncMG_SUM <-  sncRNA_CRC_cells_MG %>% 
+    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% group_by( Sample) %>% summarise(sss=sum(Reads)) %>% 
+    mutate(sss = as.integer(round(sss)))
+
+identical(MG_SUM, sncMG_SUM)
+stopifnot(identical(MG_SUM, sncMG_SUM))
+
+```
+
+PhD theme for  plots
+```{r}
+PhD_theme <-
+  list(
+    scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+make the sumary plot for all DBs
+```{r}
+p_sncRNA_MG <- sncRNA_CRC_cells_MG %>% 
+    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% 
+    group_by( Sample, DB) %>% 
+    summarise(C_reads = sum(Reads)) %>% 
+    rename("Cell line"= Sample, Database = DB) %>% 
+    ggplot() +
+    geom_col(mapping = aes(x = `Cell line`, y = C_reads, fill = Database), 
+             position = "fill") +
+    ylab("Mapped Reads") +
+    ggtitle("Percentage of mapped reads to each sncRNA database \nfor the CRC cell-lines and testis samples") +
+    scale_y_continuous(labels = scales::percent) +
+    PhD_theme
+
+tiff(filename = file.path("FIG_15_sncRNA_DBs_CRC_lines_Testis.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+p_sncRNA_MG
+dev.off()
+```
+
+make a read length plot
+```{r}
+p_sncRNA_MG_rl <- sncRNA_CRC_cells_MG %>% 
+    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% 
+    rename(Database = DB) %>% 
+    ggplot() +
+    geom_col(mapping = aes(x = Length, y = Reads, fill = Database), 
+             position = "fill") +
+    facet_wrap(facets = "Sample", ncol = 2) +
+    scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(breaks = extended_breaks(n = 9)) +
+    ylab("Mapped Reads") +
+    xlab("Read Length") +
+    ggtitle("Percentage of mapped reads to each sncRNA database \n respect to read length, for the CRC cell-lines and testis samples") +
+    custom_theme
+
+tiff(filename = file.path("FIG_16_sncRNA_DBs_read_length_CRC_lines_Testis.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+p_sncRNA_MG_rl
+dev.off()
+```
+
