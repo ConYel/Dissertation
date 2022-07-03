@@ -1,0 +1,130 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Thu Jun 30 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.1 Exploration of the PIWIL gene expression data in public datasets 
+
+### *PIWIL* genes in Genotype-Tissue Expression (GTEx) project  
+  
+### *PIWIL* genes in TCGA projects  
+  
+### *PIWIL* genes in Expression Atlas, E-MTAB-2706 project  
+  
+Import Libraries
+```{r}
+library(vroom)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(forcats)
+library(ggplot2)
+```
+
+Using the url: we downlowad the metadata regarding each cell line.
+```{r}
+cell_lines_metdat <- vroom("Chapter_1_1/E-MTAB-2706.sdrf.txt") %>% 
+    select(Source_Name = "Source Name", Cell_line = "Characteristics[cell line]",
+           tissue = "Characteristics[organism part]",
+           disease = "Characteristics[disease]") %>% 
+    filter(str_detect(tissue, "colon")) %>% 
+    mutate(Source_Name = str_replace(Source_Name, " ","_")) %>% 
+    distinct(Source_Name, Cell_line, .keep_all = TRUE)
+
+gene_data <- vroom("Chapter_1_1/E-MTAB-2706.additional.1/140625_Klijn_geneToTranscript.txt") %>% 
+    rename(geneID = "entrez")
+```
+
+Using the data on the url: we import the expression values for each cell line.
+```{r}
+RPKM_cell_lines <- vroom("Chapter_1_1/E-MTAB-2706.additional.1/140625_Klijn_RPKM_coding.txt") %>% 
+    pivot_longer(cols = -geneID, names_to = "samples", values_to = "RPKM") %>% 
+    mutate(Source_Name = str_replace(samples, " ", "_")) %>% 
+    inner_join(cell_lines_metdat) %>% 
+    inner_join(gene_data)
+
+PIWIL_genes_expression <- RPKM_cell_lines %>% 
+    filter(str_detect(gene_name, "PIWIL")) 
+```
+
+PhD theme for plots 
+```{r}
+# Use colourblind-friendly colours
+wes_cols <- c(wesanderson::wes_palettes$Rushmore[1:4],
+                             wesanderson::wes_palettes$Darjeeling1)
+
+# Set theme
+PhD_theme <-
+  list(
+    scale_fill_manual(values = wes_cols),
+    scale_color_manual(values = wes_cols),
+    #scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+Make the plot
+```{r}
+
+p_pw_1_4 <- PIWIL_genes_expression %>% 
+    filter(str_detect(gene_name, "PIWIL1|PIWIL4"),
+           Cell_line %in% c("Caco-2", "COLO 205", "HCT 116", "HT-115",
+                            "HT-29", "SW 1417", "SW 403", "RKO")) %>% 
+    ggplot() +
+    geom_col(mapping = aes(x = Cell_line, y = RPKM, fill = Cell_line))+
+    facet_wrap(facets = "gene_name", nrow = 2) +
+    xlab("Cell Line") +
+    PhD_theme
+
+p_pw_2_3 <- PIWIL_genes_expression %>% 
+    filter(str_detect(gene_name, "PIWIL2|PIWIL3"),
+           Cell_line %in% c("Caco-2", "COLO 205", "HCT 116", "HT-115",
+                            "HT-29", "SW 1417", "SW 403", "RKO")) %>% 
+    ggplot() +
+    geom_col(mapping = aes(x = Cell_line, y = RPKM, fill = Cell_line))+
+    facet_wrap(facets = "gene_name", nrow = 2) +
+    xlab("Cell Line") +
+    PhD_theme
+
+tiff("FIG_12_E_MTAB_2706_PIWIL_1_4_fpkm.tiff", width = 9, height = 8, units = 'in', res = 300)
+p_pw_1_4
+dev.off()
+
+tiff("FIG_13_E_MTAB_2706_PIWIL_2_3_fpkm.tiff", width = 9, height = 8, units = 'in', res = 300)
+p_pw_2_3
+dev.off()
+```
+
