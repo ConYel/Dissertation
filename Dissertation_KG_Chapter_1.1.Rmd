@@ -70,16 +70,13 @@ PIWIL_genes_expression <- RPKM_cell_lines %>%
 
 PhD theme for plots 
 ```{r}
-# Use colourblind-friendly colours
 wes_cols <- c(wesanderson::wes_palettes$Rushmore[1:4],
                              wesanderson::wes_palettes$Darjeeling1)
 
-# Set theme
 PhD_theme <-
   list(
     scale_fill_manual(values = wes_cols),
     scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
@@ -99,32 +96,19 @@ PhD_theme <-
 Make the plot
 ```{r}
 
-p_pw_1_4 <- PIWIL_genes_expression %>% 
-    filter(str_detect(gene_name, "PIWIL1|PIWIL4"),
+p_pw_rpkm_piwils <- PIWIL_genes_expression %>% 
+    filter(
            Cell_line %in% c("Caco-2", "COLO 205", "HCT 116", "HT-115",
                             "HT-29", "SW 1417", "SW 403", "RKO")) %>% 
     ggplot() +
     geom_col(mapping = aes(x = Cell_line, y = RPKM, fill = Cell_line))+
-    facet_wrap(facets = "gene_name", nrow = 2) +
+    facet_wrap(facets = "gene_name", ncol = 1, scales = "free_y") +
     xlab("Cell Line") +
+    ggtitle("Expression of PIWIL genes in CRC cell-lines \n from the Public dataset: E-MTAB-2706") +
     PhD_theme
 
-p_pw_2_3 <- PIWIL_genes_expression %>% 
-    filter(str_detect(gene_name, "PIWIL2|PIWIL3"),
-           Cell_line %in% c("Caco-2", "COLO 205", "HCT 116", "HT-115",
-                            "HT-29", "SW 1417", "SW 403", "RKO")) %>% 
-    ggplot() +
-    geom_col(mapping = aes(x = Cell_line, y = RPKM, fill = Cell_line))+
-    facet_wrap(facets = "gene_name", nrow = 2) +
-    xlab("Cell Line") +
-    PhD_theme
-
-tiff("FIG_12_E_MTAB_2706_PIWIL_1_4_fpkm.tiff", width = 9, height = 8, units = 'in', res = 300)
-p_pw_1_4
-dev.off()
-
-tiff("FIG_13_E_MTAB_2706_PIWIL_2_3_fpkm.tiff", width = 9, height = 8, units = 'in', res = 300)
-p_pw_2_3
+tiff("FIG_12_E_MTAB_2706_PIWILs_rpkm.tiff", width = 9, height = 8, units = 'in', res = 300)
+p_pw_rpkm_piwils
 dev.off()
 ```
 
