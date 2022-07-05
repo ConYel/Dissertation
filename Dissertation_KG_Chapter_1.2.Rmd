@@ -29,13 +29,76 @@ This project contains the scripting part of the Doctoral Dissertation of **Konst
 Import Libraries
 ```{r}
 #library(readxl)
-
+library(vroom)
 library(dplyr)
 library(stringr)
 library(purrr)
 library(tidyr)
 library(ggplot2)
 library(scales)
+```
+
+### PIWIL genes RNA expression in CRC lines and Testis
+
+After getting the gene quantification with featurecounts we import the data for visualization
+```{r}
+bulk_RNA_CRC <- vroom::vroom("Chapter_1_2/CRC_cell_lines_RNA_seq_CPM_04_Jul_2022.txt")
+```
+
+format the table
+```{r}
+PIWIL_RNA_CRC <- bulk_RNA_CRC %>% 
+    filter(str_detect(gene_name , "PIWI")) %>% 
+    select(-c(transcript, Chr:gene_type)) %>% 
+    pivot_longer(cols = -gene_name, names_to = "Sample", values_to = "CPM") %>% 
+    mutate(Sample = str_remove_all(Sample, "Pool_|_.+|EMPTY.+"))
+
+```
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$Rushmore[2:3],
+              wesanderson::wes_palettes$Darjeeling1[4],
+              wesanderson::wes_palettes$BottleRocket1[1])
+
+PhD_theme <-
+  list(
+    scale_fill_manual(values = wes_cols),
+    scale_color_manual(values = wes_cols),
+    #scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+plot the PIWIL expressions
+```{r}
+p_PIWIL <- PIWIL_RNA_CRC %>% 
+    rename("Cell line"= Sample) %>% 
+    ggplot() +
+    geom_col(mapping = aes(x = `Cell line`, y = CPM, fill = `Cell line`), 
+             position = "dodge") +
+    facet_wrap(facets = "gene_name", ncol = 2) +
+    ylab("Counts pem Million (CPM)") +
+    ggtitle("PIWIL genes expression in CRC cell-lines and testis samples") +
+    PhD_theme
+
+tiff(filename = file.path("FIG_13_PIWIL_genes_Cell_lines_Testis.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+p_PIWIL
+dev.off()
 ```
 
 ### sncRNA concetrations in CRC cell lines and testis samples
@@ -78,15 +141,16 @@ stopifnot(identical(MG_SUM, sncMG_SUM))
 
 ```
 
-PhD theme for  plots
+PhD theme for plots
 ```{r}
 PhD_theme <-
   list(
     scale_fill_brewer(palette = "Set1"),
-    theme_bw() +
+        theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
+        strip.text = element_text(size = 20),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
@@ -99,10 +163,10 @@ PhD_theme <-
   )
 ```
 
-make the sumary plot for all DBs
+make the summary plot for all DBs
 ```{r}
 p_sncRNA_MG <- sncRNA_CRC_cells_MG %>% 
-    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% 
+    filter( Class != "tRNA_5_end",  DB != "rRNAdb") %>% 
     group_by( Sample, DB) %>% 
     summarise(C_reads = sum(Reads)) %>% 
     rename("Cell line"= Sample, Database = DB) %>% 
@@ -114,7 +178,7 @@ p_sncRNA_MG <- sncRNA_CRC_cells_MG %>%
     scale_y_continuous(labels = scales::percent) +
     PhD_theme
 
-tiff(filename = file.path("FIG_15_sncRNA_DBs_CRC_lines_Testis.tiff"),
+tiff(filename = file.path("FIG_14_sncRNA_DBs_CRC_lines_Testis.tiff"),
      compression = "none", height = 10, width = 14,  units = 'in', res = 600)
 p_sncRNA_MG
 dev.off()
@@ -123,7 +187,7 @@ dev.off()
 make a read length plot
 ```{r}
 p_sncRNA_MG_rl <- sncRNA_CRC_cells_MG %>% 
-    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% 
+    filter( Class != "tRNA_5_end",  DB != "rRNAdb") %>% 
     rename(Database = DB) %>% 
     ggplot() +
     geom_col(mapping = aes(x = Length, y = Reads, fill = Database), 
@@ -134,9 +198,9 @@ p_sncRNA_MG_rl <- sncRNA_CRC_cells_MG %>%
     ylab("Mapped Reads") +
     xlab("Read Length") +
     ggtitle("Percentage of mapped reads to each sncRNA database \n respect to read length, for the CRC cell-lines and testis samples") +
-    custom_theme
+    PhD_theme
 
-tiff(filename = file.path("FIG_16_sncRNA_DBs_read_length_CRC_lines_Testis.tiff"),
+tiff(filename = file.path("FIG_15_sncRNA_DBs_read_length_CRC_lines_Testis.tiff"),
      compression = "none", height = 10, width = 14,  units = 'in', res = 600)
 p_sncRNA_MG_rl
 dev.off()
