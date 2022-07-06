@@ -1,0 +1,281 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Thu Jun 30 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.5 Evaluation of piRNA in RIP-seq
+
+###  piRNA identified inside PIWIL1
+For this analysis we have use SPORTS 1.0 to perform all the preprocessing, alignment and quantification steps as shown in the ... GitHub Repository.
+Using TMM normalization and transforming to CPM we arrive to a table 
+
+Import Libraries
+```{r}
+library(vroom)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(ggpmisc)
+library(ComplexHeatmap)
+library(circlize)
+library(limma)
+library(ggvenn)
+```
+
+Import the voom and get the comparisons
+```{r}
+voom_IPP <- readRDS("Chapter_1_5/3_IPP_PIWIL1_all_DBs/vfit_x1_voomTMM.rds")
+
+#IPP_C_vs_INPUT
+topIPP_C_vs_INPUT <- topTable(voom_IPP, coef = "IPP_C_vs_INPUT",
+                         number = nrow(voom_IPP),
+                         adjust.method = "fdr",
+                         sort.by = "p") %>% 
+    as_tibble(rownames = "smallRNA") %>% 
+    filter(adj.P.Val< 0.01, logFC > 2)
+#IPP_N_vs_INPUT
+topIPP_N_vs_INPUT <- topTable(voom_IPP, coef = "IPP_N_vs_INPUT",
+                         number = nrow(voom_IPP),
+                         adjust.method = "fdr",
+                         sort.by = "p") %>% 
+    as_tibble(rownames = "smallRNA") %>% 
+    filter(adj.P.Val< 0.01, logFC > 2)
+#IPP_INPUT_vs_noAb
+topIPP_INPUT_vs_noAb <- topTable(voom_IPP, coef = "IPP_INPUT_vs_noAb",
+                         number = nrow(voom_IPP),
+                         adjust.method = "fdr",
+                         sort.by = "p") %>% 
+    as_tibble(rownames = "smallRNA") %>% 
+    filter(adj.P.Val< 0.01, logFC < (-2))
+```
+
+find the enriched
+```{r}
+enriched_C_IPP <- topIPP_C_vs_INPUT %>% 
+    filter(!smallRNA %in% topIPP_INPUT_vs_noAb$smallRNA) %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) 
+
+enriched_C_IPP %>% count(Class)
+
+enriched_N_IPP <- topIPP_N_vs_INPUT %>% 
+    filter(!smallRNA %in% topIPP_INPUT_vs_noAb$smallRNA) %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" )
+
+enriched_N_IPP %>% count(Class)
+
+enriched_IPP_common <- bind_rows("N_ab_LFC" = topIPP_N_vs_INPUT, 
+                                 "C_ab_LFC" = topIPP_C_vs_INPUT, .id = "ab") %>% 
+    filter(!smallRNA %in% topIPP_INPUT_vs_noAb$smallRNA) %>% 
+    select(ab:logFC) %>% 
+    pivot_wider(names_from = ab, values_from = logFC) %>% 
+    drop_na() %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) 
+
+enriched_IPP_common %>% count(Class)
+```
+
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])
+
+PhD_theme <-
+  list(
+    #scale_fill_manual(values = wes_cols),
+    #scale_color_manual(values = wes_cols),
+    scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+make df of union
+```{r}
+enriched_IPP_union <- bind_rows("IPP_Ab1" = enriched_C_IPP, 
+                                 "IPP_Ab2" = enriched_N_IPP, .id = "ab") 
+```
+
+plot the enriched
+```{r}
+plot_enri_un <- enriched_IPP_union %>% 
+    ggplot(aes(x = Class,  fill = Class)) +
+    geom_bar(stat = "count")+
+    stat_count(geom = "text", colour = "black", size = 7.5, 
+              aes(label = ..count..), position  = position_fill(vjust = 850)) +
+    facet_wrap(facets = "ab", ncol = 2) + 
+    xlab("sncRNA Class") + 
+    ggtitle("Amount of sncRNAs found enriched in RIP-seq\n for COLO205 cell-line") +
+    PhD_theme
+
+tiff(filename = file.path("FIG_20_IPP_1_2_COLO205.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+plot_enri_un
+dev.off()
+```
+
+
+### Heatmap of comon piRNAs enriched with both Ab in IPP
+
+import the lcpm 
+```{r}
+sncRNA_IPP_lCPM <- vroom("Chapter_1_5/3_IPP_PIWIL1_all_DBs/IPP_PIWIL_TMM_logcpm_counts.txt") %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>%
+    filter(sncRNA %in% enriched_IPP_common$sncRNA, Class == "piRNA") %>% 
+    select(-Class, -contains("noAb")) %>% 
+    rename_with(.cols = contains("COLO205"), 
+                .fn = ~ str_remove(.x, "COLO205_IPP_") %>% 
+                    str_replace("C_", "1_") %>% 
+                    str_replace("N_", "2_")) %>% 
+    column_to_rownames("sncRNA") %>% 
+    as.matrix()
+
+```
+
+Scale the matrix for the heatmap
+```{r}
+# make the matrices for the heatmap -----
+sc_mat <- sncRNA_IPP_lCPM %>% t() %>% scale() %>% t()
+sc_mat %>% dim()
+sc_mat %>% head()
+hist(sc_mat)
+```
+
+make the heatmap
+```{r}
+f <- colorRamp2(c(-1, 0 ,1),c("#53868B", "#8B8878", "#FFD700"))
+
+ha_1 <- HeatmapAnnotation(Samples = colnames(sc_mat),
+            col = list(Samples =
+                           rep(wesanderson::wes_palettes$Cavalcanti1[2:4],
+                               each = 3) %>% 
+                           set_names(colnames(sc_mat))))
+
+ht_1 <- Heatmap(matrix = sc_mat, #data
+        top_annotation = ha_1, #annot
+        col = f, #colors data  
+        row_title_gp = gpar(fontsize = 20),
+        column_title_gp = gpar(fontsize = 20),
+        column_names_gp = gpar(fontsize = 20),
+        column_names_rot = 45,
+        heatmap_legend_param = list(
+            title_gp = gpar(fontsize = 15, fontface = "bold"),
+            labels_gp = gpar(fontsize = 15)),
+        show_row_dend = TRUE,
+        show_row_names = FALSE,
+        show_column_names = TRUE,
+        name = "z-score \nabundance",
+        clustering_distance_columns = "spearman",
+        clustering_method_columns =  "median",
+        clustering_method_rows = "median",
+        clustering_distance_rows = "spearman",
+        row_dend_reorder = TRUE,
+        row_title = "piRNAs",
+        column_title = str_glue("Heatmap of {nrow(sc_mat)} common piRNAs\nfound enriched between Ab1 and Ab2"),
+)
+
+tiff(filename = file.path("FIG_21_piRNA_common_AB1_AB2_Colo205.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+ht_1
+dev.off()
+
+```
+
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])
+
+PhD_theme <-
+  list(
+    #scale_fill_manual(values = wes_cols),
+    #scale_color_manual(values = wes_cols),
+    scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        
+      )
+  )
+```
+
+### Methylated and immunoprecipitated piRNA
+```{r}
+# We import the table made from previous chapter with methylated sncRNAs
+dge_contrasts_treat <- vroom("Chap_1_4_dge_contrasts_treat_Enriched_methylate_sncRNAs_Cytr_Nuc.txt")
+
+Treat_cyt <- dge_contrasts_treat %>%  
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
+    filter(comparison == "TrevsUntCyt", Class == "piRNA")
+
+Treat_nuc <- dge_contrasts_treat %>%  
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
+    filter(comparison == "TrevsUntNuc", Class == "piRNA")
+
+#IPP piRNAs by both Antibodies
+IPP_piRNA <- enriched_IPP_common %>% 
+    filter(Class == "piRNA")
+
+
+venn_list <- list(`piRNAs Methylated in Cytosol` = Treat_cyt$sncRNA,
+          `piRNAs Methylated in Nucleus` = Treat_nuc$sncRNA,
+          `piRNAs in RIP-seq` = IPP_piRNA$sncRNA
+          )
+
+venn_piRNA <- ggvenn(venn_list, show_percentage = FALSE) +  
+    ggtitle("Common piRNAs between Treated Nucleus/Cytosolic and Rip-seq samples")+
+    PhD_theme +
+    theme_void()+
+    coord_fixed()
+
+tiff(filename = file.path("FIG_22_piRNA_common_AB1_AB2_Meth_Cyt_Nuc.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+venn_piRNA
+dev.off() 
+```
