@@ -1,0 +1,254 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Thu Jun 30 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.4 Evaluation of potentially functional piRNA expression in COLO205 
+
+###  piRNA expression in COLO205 cell line after sodium periodate oxidation followed by beta-elimination
+For this analysis we have used SPORTS 1.0 to perform all the pre-processing, alignment and quantification steps as shown in the ... GitHub Repository.
+
+I analyze the spike in data to see if the treatment worked and then I search for
+the piRNA molecules that have functional modification.
+Import Libraries
+```{r}
+library(readxl)
+library(vroom)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(ggpmisc)
+
+```
+
+Import the table with the raw reads
+```{r}
+piRNA_CRC_cells <- vroom("Chapter_1_4/piRNA_spike_ins_raw.txt") %>% 
+    filter(str_detect(smallRNA, "spike")) %>%
+    select(smallRNA, starts_with("TO")) %>% 
+    pivot_longer(cols = -smallRNA, names_to = "sample", values_to = "read") %>% 
+    mutate(smallRNA =  case_when(
+               smallRNA == "spikeB1" ~ "SS_22",
+               smallRNA == "spikeB2" ~ "SS_28",
+               smallRNA == "spikeM3" ~ "mSS_28",
+               smallRNA == "spikeM4" ~ "mSS_22"),
+           sample = str_replace(sample, "TOTAL", "COLO205")) %>% 
+    rename("spike-ins" = smallRNA)
+```
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])
+
+PhD_theme <-
+  list(
+    scale_fill_manual(values = wes_cols),
+    scale_color_manual(values = wes_cols),
+    #scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+plot of spike ins
+```{r}
+p_treat <- piRNA_CRC_cells %>%
+    ggplot() +
+    geom_col(mapping = aes(x = sample , y = read, fill = `spike-ins`), position = "fill") +
+    ylab("Spike-in Reads") +
+    xlab("Samples") +
+    ggtitle("Percentage of reads mapped to spike-ins\n for treated and not treated samples of COLO205")+
+    scale_y_continuous(labels = scales::percent) +
+    PhD_theme
+
+tiff(filename = file.path("FIG_17_spike_in_COLO205.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+p_treat
+dev.off()
+```
+
+### Identifying methylated sncRNAs in COLO205
+
+After running the SPORTS workflow I calculated the normalized with TMM cpm for all the
+samples.
+We import that table that can be found published in Sellitto et al.
+```{r}
+sncRNA_treat <- read_xls("Chapter_1_4/Table_S7.xls", skip = 4) %>% # remove not annot
+    filter(DB != "noAnnot") %>% 
+    mutate(Status = case_when(
+        Status == "methylated" ~ "Enriched",
+        Status == "not-methylated" ~ "Not Enriched",
+        Status == "partially-methylated" ~ "Partly Enriched"
+    ))
+
+```
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$Moonrise2[2],
+              "#1C1718",
+              wesanderson::wes_palettes$Moonrise2[1]
+             )
+
+PhD_theme <-
+  list(
+    scale_fill_manual(values = wes_cols),
+    scale_color_manual(values = wes_cols),
+    #scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+format the table and make main plot
+```{r}
+number_methylated <-  sncRNA_treat %>%  
+    filter( DB != "rRNA") %>% 
+    group_by(DB, Status) %>% 
+    summarise(Sequences = n()) %>% 
+    ungroup()
+
+p_treat_main <- sncRNA_treat %>% 
+    filter( DB != "rRNA", Tot_NAIO4_median != 0 ) %>% 
+    ggplot(aes(x = log10(Tot_NAIO4_mean + 0.001),
+               y = log10(Tot_mean + 0.001), col = Status)) +
+    geom_jitter() +
+    facet_wrap(facets = "DB", ncol = 2) +
+    PhD_theme
+
+tbs <- lapply(split(number_methylated, number_methylated$DB), "[", -1) %>% 
+    lapply(FUN = mutate, )
+
+df_plot <- tibble(x = rep(-Inf, length(tbs)), 
+             y = rep(Inf, length(tbs)), 
+             DB = names(tbs), 
+             tbl = tbs)
+```
+
+add the tables and make the complete plot
+```{r}
+p_treat_comp <- p_treat_main + 
+    geom_table(data = df_plot, aes(x = x, y = y, label = tbl),
+                hjust = 0, vjust = 1, size = 6) +
+    ylab("Log10 Mean Counts per Millions, Non-Treated COLO205 Samples") +
+    xlab("Log10 Mean Counts per Millions, Treated COLO205 Samples") +
+    ggtitle("Effect of sodium-periodate treatment to each of the sncRNA classes") 
+    
+tiff(filename = file.path("FIG_18_effect_treatment_Colo205_.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+p_treat_comp
+dev.off()
+```
+
+### sncRNAs in COLO205 Cytosol and Nucleus
+
+import the datasets for cell fractions and methylated molecules
+```{r}
+library(edgeR)
+dge_contrasts <- readRDS("Chapter_1_4/DBs/2nd_treatment/contrast_list_x1_voomQ_CYT_vs_NUC.rds")
+dge_cyt <- vroom("Chapter_1_4/DBs/2nd_treatment/cpm_TMM_CYT_vs_NUC.txt")  
+
+```
+
+format the list to dataframe and filter for methylated molecules
+```{r}
+dge_contrasts_treat <- dge_contrasts %>% 
+    bind_rows(.id = "comparison") %>% 
+    filter(comparison %in% c("TrevsUntCyt", "TrevsUntNuc")) %>% 
+    select(comparison, smallRNA,  logFC, adj.P.Val ) %>% 
+    filter(adj.P.Val < 0.01, logFC > 2) %>% 
+    vroom_write("Chap_1_4_dge_contrasts_treat_Enriched_methylate_sncRNAs_Cytr_Nuc.txt")
+
+table_1_TrevsUnt <- dge_contrasts_treat %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
+    count(comparison, Class) %>% 
+    pivot_wider(names_from = comparison, values_from = n) %>% 
+    vroom_write("Chap_1_4_table_1_Enriched_methylate_sncRNAs_Cyt_or_Nuc.txt")
+```
+
+format the list to dataframe and find cytosolic or nucleolic  molecules
+```{r}
+dge_contrasts_cyt_vs_nuc <- dge_contrasts %>% 
+    bind_rows(.id = "comparison") %>% 
+    filter(comparison %in% c("TreCytvsNuc", "UntCytvsNuc")) %>% 
+    select(comparison, smallRNA,  logFC, adj.P.Val ) %>% 
+    filter(adj.P.Val < 0.05, abs(logFC) > 1)
+    
+# check if all are found enriched in the same compartment
+dupl <- dge_contrasts_cyt_vs_nuc %>% filter(duplicated(smallRNA))
+
+different_logFC  <- dge_contrasts_cyt_vs_nuc %>% 
+    filter( smallRNA %in% dupl$smallRNA) %>% 
+    select(-adj.P.Val) %>% 
+    pivot_wider(names_from = comparison, values_from = logFC) %>% 
+    filter(!(if_all(.cols = where(is.numeric), ~.x > 0) | 
+                 if_all(.cols = where(is.numeric), ~.x < 0)))
+# remove duplicates
+dge_contrasts_cyt_vs_nuc <- distinct(dge_contrasts_cyt_vs_nuc, smallRNA, .keep_all = TRUE) %>% 
+    filter(!smallRNA %in% different_logFC$smallRNA)
+
+# make the table
+table_2_CytvsNuc <- dge_contrasts_cyt_vs_nuc %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
+    count(comparison, Class) %>% 
+    pivot_wider(names_from = comparison, values_from = n) 
+
+    vroom_write("Chap_1_4_table_2_Enriched_sncRNAs_Cyt_or_Nuc.txt")
+```
+
+join tables and write them
+```{r}
+table_1_TrevsUnt %>% 
+    full_join(table_2_CytvsNuc) %>% 
+    vroom_write("Chap_1_4_table_1_Enriched_sncRNAs.txt")
+```
+
+
+
