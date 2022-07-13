@@ -1,0 +1,85 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.6 Gene Target prediction and Functional enrichment analysis of identified piRNAs in COLO205
+
+###  Gene predicted targets that can be found inside RIP-seq of PIWIL1 in COLO205
+
+Import Libraries
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+
+#library(vroom)
+#library(tibble)
+
+#library(purrr)
+#library(stringr)
+#library(ggplot2)
+#library(scales)
+#library(ggpmisc)
+#library(ComplexHeatmap)
+#library(circlize)
+#library(limma)
+#library(ggvenn)
+```
+
+import the predicted genes
+```{r}
+pred_genes_pathsw <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9A", 
+                        skip = 3, col_names = TRUE) %>% 
+    rename(Gene_name =`Gene name`)
+
+pred_genes <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9B", 
+                        skip = 3, col_names = TRUE) %>% 
+    rename(Gene_name =`Gene name`)
+
+pred_genes_piRNA <- read_xlsx("Chapter_1_6/Table_S9.xlsx", 
+                              sheet = "Table S9C", skip = 4, col_names = TRUE) %>% 
+    rename(piRNA = piR,
+           UTR_3 =`3'UTR`,
+           UTR_5 = `5'UTR`) %>% 
+    pivot_longer(cols = -c(piRNA, EnsID), 
+                 names_to = "gene_region",
+                 values_to = "gene_name") %>% 
+    drop_na() %>% 
+    distinct(piRNA, EnsID, .keep_all = TRUE) 
+
+pred_master_reg_genes <- read_xlsx("Chapter_1_6/Table_S9.xlsx", 
+                              sheet = "Table S9D", skip = 4, col_names = TRUE) %>% 
+    rename(Gene_name =`Gene name`,
+           EnsID =`Ensembl ID`,
+           Complete_name = `Complete name`)
+
+pred_master_reg_genes_inter <- read_xlsx("Chapter_1_6/Table_S9.xlsx", 
+                              sheet = "Table S9E", skip = 4, col_names = TRUE) %>% 
+    rename(Gene_1 =`Gene 1`,
+           Gene_2 =`Gene 2`,
+           Network_group = `Network group`)
+```
+
+
