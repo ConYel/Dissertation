@@ -99,7 +99,6 @@ enriched_IPP_common <- bind_rows("N_ab_LFC" = topIPP_N_vs_INPUT,
 enriched_IPP_common %>% count(Class)
 ```
 
-
 PhD theme for plots
 ```{r}
 wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])

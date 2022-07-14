@@ -33,6 +33,18 @@ Import Libraries
 library(readxl)
 library(dplyr)
 library(tidyr)
+library(clusterProfiler)
+library(stringr)
+library(ReactomePA)
+library(enrichplot)
+library(forcats)
+library(ggplot2)
+
+#library(ggnetwork)
+#library(wppi)
+
+#library(forcats)
+#library(DOSE)
 
 #library(vroom)
 #library(tibble)
@@ -50,9 +62,8 @@ library(tidyr)
 
 import the predicted genes
 ```{r}
-pred_genes_pathsw <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9A", 
-                        skip = 3, col_names = TRUE) %>% 
-    rename(Gene_name =`Gene name`)
+#pred_genes_pathsw <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9A", 
+#                        skip = 3, col_names = TRUE)
 
 pred_genes <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9B", 
                         skip = 3, col_names = TRUE) %>% 
@@ -60,7 +71,7 @@ pred_genes <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9B",
 
 pred_genes_piRNA <- read_xlsx("Chapter_1_6/Table_S9.xlsx", 
                               sheet = "Table S9C", skip = 4, col_names = TRUE) %>% 
-    rename(piRNA = piR,
+    dplyr::rename(piRNA = piR,
            UTR_3 =`3'UTR`,
            UTR_5 = `5'UTR`) %>% 
     pivot_longer(cols = -c(piRNA, EnsID), 
@@ -82,4 +93,110 @@ pred_master_reg_genes_inter <- read_xlsx("Chapter_1_6/Table_S9.xlsx",
            Network_group = `Network group`)
 ```
 
+transform Gene Symbols to ENTREZ IDs
+```{r}
+Entr_Gene_Ids <- bitr( pred_genes$Gene_name, 
+                     fromType="SYMBOL", 
+                     toType="ENTREZID", OrgDb="org.Hs.eg.db")
+
+Entr_Gene_Ids %>% nrow() #only one got dropped
+```
+
+perform GO enrichment analysis
+```{r}
+ggo <- groupGO(gene     = Entr_Gene_Ids$ENTREZID,
+               OrgDb    = org.Hs.eg.db,
+               ont      = "MF",
+               level    = 10,
+               readable = TRUE)
+
+goenr <- enrichGO(Entr_Gene_Ids$ENTREZID, ont = "MF", OrgDb = 'org.Hs.eg.db')
+
+head(ggo)
+ggo %>% filter(Count > 1)
+
+reactome_path <- enrichPathway(gene = Entr_Gene_Ids$ENTREZID, 
+                               pvalueCutoff = 0.05, readable=TRUE)
+```
+
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$Zissou1[5:1])
+
+PhD_theme <-
+  list(
+    #scale_fill_manual(values = wes_cols),
+    #scale_color_manual(values = wes_cols),
+    scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+
+plot enrichment of go
+```{r}
+barplot(showCategory = 20) 
+goenr %>%  
+mutate(qscore = -log(p.adjust, base=10)) %>% 
+    barplot(x="qscore")
+
+
+dotplot(reactome_path, showCategory=30) + ggtitle("dotplot for ORA")
+
+goenr
+goenr_RF <- mutate(goenr , richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+goenr_plot <- ggplot(goenr_RF, showCategory = 13,
+  aes(richFactor, fct_reorder(Description, richFactor))) + 
+  geom_segment(aes(xend=0, yend = Description)) +
+  geom_point(aes(color=p.adjust, size = Count)) +
+  scale_color_gradientn(colours = wes_cols,
+                        guide = guide_colorbar(reverse=TRUE, order=1)) +
+  scale_size_continuous(range=c(2, 10)) +
+  PhD_theme + 
+  xlab("Rich Factor") +
+  ylab(NULL) + 
+  ggtitle("Enriched Gene Ontology Molecular Functions")
+
+tiff(filename = file.path("FIG_23_Enriched_GO_Mol_Fun_COLO205_106_genes.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+goenr_plot
+dev.off()
+```
+
+
+```{r}
+reactome_path_RF <- mutate(reactome_path , richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+reactome_enr <- ggplot(reactome_path_RF, showCategory = 20, 
+  aes(richFactor, fct_reorder(Description, richFactor))) + 
+  geom_segment(aes(xend=0, yend = Description)) +
+  geom_point(aes(color=p.adjust, size = Count)) +
+  scale_color_gradientn(colours = wes_cols,
+                        guide = guide_colorbar(reverse=TRUE, order=1)) +
+  scale_size_continuous(range=c(2, 10)) +
+  PhD_theme + 
+  xlab("Rich Factor") +
+  ylab(NULL) + 
+  ggtitle("Enriched Reactome Pathways")
+
+tiff(filename = file.path("FIG_24_Enriched_Reactome_COLO205_106_genes.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+reactome_enr
+dev.off()
+```
 
