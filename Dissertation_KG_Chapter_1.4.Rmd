@@ -31,6 +31,7 @@ For this analysis we have used SPORTS 1.0 to perform all the pre-processing, ali
 
 I analyze the spike in data to see if the treatment worked and then I search for
 the piRNA molecules that have functional modification.
+
 Import Libraries
 ```{r}
 library(readxl)
@@ -41,6 +42,7 @@ library(tidyr)
 library(ggplot2)
 library(scales)
 library(ggpmisc)
+library(gridExtra)
 
 ```
 
@@ -99,6 +101,57 @@ p_treat <- piRNA_CRC_cells %>%
 tiff(filename = file.path("FIG_17_spike_in_COLO205.tiff"),
      compression = "none", height = 10, width = 14,  units = 'in', res = 600)
 p_treat
+dev.off()
+```
+
+### check the reads with respect to databases in treated and no treated
+
+import the dataset
+```{r}
+reads_DBS <- read_xlsx("Chapter_1_3/Table_S3_Sellitto_et_al.xlsx", skip = 4) %>% # remove not annot
+    filter(str_detect(Annotation, "TOTAL" )) %>% 
+    select(Annotation, miRBase:Unannotated) %>% 
+    pivot_longer(cols = -Annotation, names_to = "Database", values_to = "Reads") %>% 
+    filter(Database != "rRNAdb")
+
+```
+
+PhD theme for plots
+```{r}
+PhD_theme <-
+  list(
+    scale_fill_brewer(palette = "Set1"),
+        theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+plot of reads after treatment
+```{r}
+p_DBs_treat <- reads_DBS %>%
+    ggplot() +
+    geom_col(mapping = aes(x = Annotation , y = Reads, fill = Database), position = "fill") +
+    ylab("Mapped Reads") +
+    xlab("Sample") +
+    ggtitle("Percentage of mapped reads to each sncRNA database \nfor treated and non treated samples of COLO205") +
+    scale_y_continuous(labels = scales::percent) +
+    PhD_theme
+
+tiff(filename = file.path("FIG_18_treatment_sncRNA_DBs_reads_COLO205.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+p_DBs_treat
 dev.off()
 ```
 
@@ -198,57 +251,107 @@ dge_cyt <- vroom("Chapter_1_4/DBs/2nd_treatment/cpm_TMM_CYT_vs_NUC.txt")
 ```
 
 format the list to dataframe and filter for methylated molecules
+
 ```{r}
-dge_contrasts_treat <- dge_contrasts %>% 
+dge_contrasts_form_cyt <- dge_contrasts %>% 
     bind_rows(.id = "comparison") %>% 
-    filter(comparison %in% c("TrevsUntCyt", "TrevsUntNuc")) %>% 
-    select(comparison, smallRNA,  logFC, adj.P.Val ) %>% 
-    filter(adj.P.Val < 0.01, logFC > 2) %>% 
-    vroom_write("Chap_1_4_dge_contrasts_treat_Enriched_methylate_sncRNAs_Cytr_Nuc.txt")
-
-table_1_TrevsUnt <- dge_contrasts_treat %>% 
-    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
-    count(comparison, Class) %>% 
-    pivot_wider(names_from = comparison, values_from = n) %>% 
-    vroom_write("Chap_1_4_table_1_Enriched_methylate_sncRNAs_Cyt_or_Nuc.txt")
-```
-
-format the list to dataframe and find cytosolic or nucleolic  molecules
-```{r}
-dge_contrasts_cyt_vs_nuc <- dge_contrasts %>% 
-    bind_rows(.id = "comparison") %>% 
-    filter(comparison %in% c("TreCytvsNuc", "UntCytvsNuc")) %>% 
-    select(comparison, smallRNA,  logFC, adj.P.Val ) %>% 
-    filter(adj.P.Val < 0.05, abs(logFC) > 1)
-    
-# check if all are found enriched in the same compartment
-dupl <- dge_contrasts_cyt_vs_nuc %>% filter(duplicated(smallRNA))
-
-different_logFC  <- dge_contrasts_cyt_vs_nuc %>% 
-    filter( smallRNA %in% dupl$smallRNA) %>% 
+    filter(comparison %in% c("TreCytvsNuc", "TrevsUntCyt", "UntCytvsNuc")) %>% 
+    select(-c(AveExpr, t, P.Value, B)) %>% 
+    filter(adj.P.Val< 0.05) %>% 
     select(-adj.P.Val) %>% 
-    pivot_wider(names_from = comparison, values_from = logFC) %>% 
-    filter(!(if_all(.cols = where(is.numeric), ~.x > 0) | 
-                 if_all(.cols = where(is.numeric), ~.x < 0)))
-# remove duplicates
-dge_contrasts_cyt_vs_nuc <- distinct(dge_contrasts_cyt_vs_nuc, smallRNA, .keep_all = TRUE) %>% 
-    filter(!smallRNA %in% different_logFC$smallRNA)
+    pivot_wider(names_from = comparison, values_from = c(logFC)) %>% 
+    filter(!is.na(TrevsUntCyt)) %>% 
+    mutate(log_fc_cyt_nuc = case_when(
+        is.na(TreCytvsNuc) & is.na(UntCytvsNuc) ~ 0,
+        is.na(TreCytvsNuc) ~ UntCytvsNuc,
+        is.na(UntCytvsNuc) ~ TreCytvsNuc,
+        TreCytvsNuc > 0 & UntCytvsNuc > 0 ~ UntCytvsNuc,
+        TRUE ~ 0
+    )) %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" )  
 
-# make the table
-table_2_CytvsNuc <- dge_contrasts_cyt_vs_nuc %>% 
-    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" ) %>% 
-    count(comparison, Class) %>% 
-    pivot_wider(names_from = comparison, values_from = n) 
-
-    vroom_write("Chap_1_4_table_2_Enriched_sncRNAs_Cyt_or_Nuc.txt")
+dge_contrasts_form_nuc <- dge_contrasts %>% 
+    bind_rows(.id = "comparison") %>% 
+    filter(comparison %in% c("TreCytvsNuc", "TrevsUntNuc", "UntCytvsNuc")) %>% 
+    select(-c(AveExpr, t, P.Value, B)) %>% 
+    filter(adj.P.Val< 0.05) %>% 
+    select(-adj.P.Val) %>% 
+    pivot_wider(names_from = comparison, values_from = c(logFC)) %>% 
+    filter(!is.na(TrevsUntNuc)) %>% 
+    mutate(log_fc_cyt_nuc = case_when(
+        is.na(TreCytvsNuc) & is.na(UntCytvsNuc) ~ 0,
+        is.na(TreCytvsNuc) ~ UntCytvsNuc,
+        is.na(UntCytvsNuc) ~ TreCytvsNuc,
+        TreCytvsNuc < 0 & UntCytvsNuc < 0 ~ UntCytvsNuc,
+        TRUE ~ 0
+    )) %>% 
+    mutate(log_fc_cyt_nuc = -(log_fc_cyt_nuc)) %>% 
+    separate(col = smallRNA, into = c("Class", "sncRNA"),sep = "_match_" )
 ```
 
-join tables and write them
+PhD theme for plots
 ```{r}
-table_1_TrevsUnt %>% 
-    full_join(table_2_CytvsNuc) %>% 
-    vroom_write("Chap_1_4_table_1_Enriched_sncRNAs.txt")
+PhD_theme <-
+  list(
+    scale_fill_brewer(palette = "Set1"),
+    scale_color_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
 ```
 
+make the plots
+```{r}
+tbs_cyt <- dge_contrasts_form_cyt %>% 
+    filter(!Class %in% c("noAnnot", "rRNA")) %>% 
+    group_by(Class) %>% 
+    summarise("Methylated Sequences" = n())
 
+plot_cyt <- dge_contrasts_form_cyt %>% 
+    filter(!Class %in% c("noAnnot", "rRNA"), log_fc_cyt_nuc >= 0) %>% 
+    ggplot() +
+    geom_point(mapping = aes(x = log_fc_cyt_nuc , y = TrevsUntCyt, col = Class)) +
+    ylab("Non-Treated <----- Log2FC -----> Treated") +
+    xlab("Log2FC -----> Cytosol enriched sncRNAs") +
+    ggtitle("Effect of sodium-periodate treatment for the Cytosol and Nucleus fractions") +
+    annotate(geom = "table", x = 6.5, y = 4, 
+             label = list(tbs_cyt), 
+             vjust = 0, hjust = 0.5, size = 5) +
+    PhD_theme
+
+
+tbs_nuc <- dge_contrasts_form_nuc %>% 
+    filter(!Class %in% c("noAnnot", "rRNA")) %>% 
+    group_by(Class) %>% 
+    summarise("Methylated Sequences" = n())
+
+plot_nuc <- dge_contrasts_form_nuc %>% 
+    filter(!Class %in% c("noAnnot", "rRNA"), log_fc_cyt_nuc >= 0) %>% 
+    ggplot() +
+    geom_jitter(mapping = aes(x = log_fc_cyt_nuc , y = TrevsUntNuc, col = Class)) +
+    ylab("Non-Treated <----- Log2FC -----> Treated") +
+    xlab("Log2FC -----> Nucleus enriched sncRNAs") +
+    annotate(geom = "table", x = 5.5, y = 6, 
+             label = list(tbs_nuc), 
+             vjust = 0, hjust = 0.5, size = 5)+
+    PhD_theme
+
+
+tiff(filename = file.path("FIG_20_effect_treatment_and_fractionation_Cyt_Nuc_Colo205_.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+grid.arrange(plot_cyt, plot_nuc)
+dev.off()
+```
 

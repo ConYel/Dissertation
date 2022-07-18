@@ -133,7 +133,7 @@ MG_SUM <- sncRNA_CRC_cells_MG_sum  %>%
     mutate(sss = as.integer(sss))
 
 sncMG_SUM <-  sncRNA_CRC_cells_MG %>% 
-    filter( Class != "tRNA_5_end",  !(Class =="rRNA" & DB == "rRNAdb")) %>% group_by( Sample) %>% summarise(sss=sum(Reads)) %>% 
+    filter( Class != "tRNA_5_end", !(Class =="rRNA" & DB == "rRNAdb")) %>% group_by( Sample) %>% summarise(sss=sum(Reads)) %>% 
     mutate(sss = as.integer(round(sss)))
 
 identical(MG_SUM, sncMG_SUM)

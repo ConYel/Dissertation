@@ -39,32 +39,10 @@ library(ReactomePA)
 library(enrichplot)
 library(forcats)
 library(ggplot2)
-
-#library(ggnetwork)
-#library(wppi)
-
-#library(forcats)
-#library(DOSE)
-
-#library(vroom)
-#library(tibble)
-
-#library(purrr)
-#library(stringr)
-#library(ggplot2)
-#library(scales)
-#library(ggpmisc)
-#library(ComplexHeatmap)
-#library(circlize)
-#library(limma)
-#library(ggvenn)
 ```
 
 import the predicted genes
 ```{r}
-#pred_genes_pathsw <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9A", 
-#                        skip = 3, col_names = TRUE)
-
 pred_genes <- read_xlsx("Chapter_1_6/Table_S9.xlsx", sheet = "Table S9B", 
                         skip = 3, col_names = TRUE) %>% 
     rename(Gene_name =`Gene name`)
@@ -106,7 +84,7 @@ perform GO enrichment analysis
 ```{r}
 ggo <- groupGO(gene     = Entr_Gene_Ids$ENTREZID,
                OrgDb    = org.Hs.eg.db,
-               ont      = "MF",
+               ont      = "BP",
                level    = 10,
                readable = TRUE)
 
@@ -116,9 +94,13 @@ head(ggo)
 ggo %>% filter(Count > 1)
 
 reactome_path <- enrichPathway(gene = Entr_Gene_Ids$ENTREZID, 
-                               pvalueCutoff = 0.05, readable=TRUE)
-```
+                               pvalueCutoff = 0.05, readable = TRUE)
 
+reactome_path %>% 
+    as_tibble %>% 
+    filter(p.adjust < 0.05) %>% 
+    vroom::vroom_write("Chapter_1_6/reactome_path_enr.txt")
+```
 
 PhD theme for plots
 ```{r}
@@ -146,19 +128,14 @@ PhD_theme <-
   )
 ```
 
-
 plot enrichment of go
 ```{r}
-barplot(showCategory = 20) 
 goenr %>%  
 mutate(qscore = -log(p.adjust, base=10)) %>% 
     barplot(x="qscore")
 
-
-dotplot(reactome_path, showCategory=30) + ggtitle("dotplot for ORA")
-
 goenr
-goenr_RF <- mutate(goenr , richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+goenr_RF <- mutate(goenr, richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
 
 goenr_plot <- ggplot(goenr_RF, showCategory = 13,
   aes(richFactor, fct_reorder(Description, richFactor))) + 
@@ -178,9 +155,10 @@ goenr_plot
 dev.off()
 ```
 
-
+plot enrichment of reactome pathways
 ```{r}
-reactome_path_RF <- mutate(reactome_path , richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+reactome_path_RF <- mutate(reactome_path , 
+                           richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
 
 reactome_enr <- ggplot(reactome_path_RF, showCategory = 20, 
   aes(richFactor, fct_reorder(Description, richFactor))) + 
