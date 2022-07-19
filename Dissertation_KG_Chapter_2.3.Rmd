@@ -1,0 +1,264 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 2: Data Analysis Workflow for small-RNAseq focused on piRNAs  
+  
+## 2.3 Analysis of samples from patients with CRC and comparison with previous analyses.
+
+###  Gene predicted targets that can be found inside RIP-seq of PIWIL1 in COLO205
+
+Import Libraries
+```{r}
+library(vroom)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(ggpmisc)
+library(readr)
+library(edgeR)
+library(ComplexHeatmap)
+library(circlize)
+
+library(clusterProfiler)
+
+library(ReactomePA)
+library(enrichplot)
+library(forcats)
+```
+
+import the resulted de sncRNAs of CRC patients
+```{r}
+CRC_tissues <- vroom("Chapter_2_3/DEA_piRNA_CC_tissues_GRCh38_25_Jan_2022/all_comparisons_long_voom_TMM_salmon_fc_LFCs_25_Jan_2022.txt")
+
+```
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$Cavalcanti1,
+              wesanderson::wes_palettes$Royal2,
+              wesanderson::wes_palettes$Darjeeling2)
+
+PhD_theme <-
+  list(
+    scale_fill_manual(values = wes_cols),
+    #scale_color_manual(values = wes_cols),
+    #scale_fill_brewer(palette = "Set2"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+plot the amount of DE per sncRNA class
+```{r}
+plot_CRC_DE <- CRC_tissues %>% 
+    filter(adj.P.Val < 0.05) %>% 
+    ggplot(aes(x = gene_type, fill = gene_type)) +
+    geom_bar(stat = "count")+
+    stat_count(geom = "text", colour = "black", size = 7.5, 
+              aes(label = ..count..), position  = position_fill(vjust = 255 )) +
+    facet_wrap(facets = "quantification", ncol = 1) + 
+    xlab("sncRNA Class") + 
+    ggtitle("Amount of sncRNAs found DE with each quantification\n approach in CRC patients samples") +
+    PhD_theme
+
+tiff(filename = file.path("FIG_39_CRC_DE_salmon_FC.tiff"),
+     compression = "none", height = 12, width = 16,  units = 'in', res = 600)
+plot_CRC_DE
+dev.off()
+```
+
+DE piRNAs, keep the union of both approaches
+```{r}
+DE_piRNA <- CRC_tissues %>% 
+    filter(adj.P.Val < 0.05, gene_type == "piRNA") %>% 
+    select(smallRNA:logFC) %>% 
+    pivot_wider(names_from = quantification, values_from = logFC) %>% 
+    drop_na
+```
+
+import the exprs values from featurecounts for the common DE piRNAs
+```{r}
+exprs_mat_tot <- read_rds("Chapter_2_3/EDA_piRNA_CC_tissues_GRCh38_24_Jan_2022/featureCounts/list_norm_dgls_featureCounts.rds") %>% 
+    magrittr::extract2("TMM") %>% #get only the TMM normalized expressions
+    edgeR::cpm(log = TRUE, prior.count = 4) %>% # transform to lcpm
+    .[DE_piRNA$smallRNA,] # subset to DE piRNAs
+
+```
+
+
+import the groups table
+```{r}
+table_groups <- read_rds("Chapter_2_3/EDA_piRNA_CC_tissues_GRCh38_24_Jan_2022/featureCounts/list_norm_dgls_featureCounts.rds") %>% 
+    magrittr::extract2("TMM") %>% 
+    magrittr::extract2("colours")
+```
+
+Scale the matrix for the heatmap
+```{r}
+# make the exprs matrix for the heatmap -----
+sc_mat <- exprs_mat_tot %>% t() %>% scale() %>% t()
+
+sc_mat %>% dim()
+sc_mat %>% head()
+str_c("min = ", round(min(sc_mat),3),
+      "| median = ", round(median(sc_mat),3), "| max = ", round(max(sc_mat),3))
+
+stopifnot(identical(as.character(table_groups$name), colnames(sc_mat)))
+
+# make the logFC matrix for the heatmap -----
+scfc_mat <- DE_piRNA %>% column_to_rownames("smallRNA") %>% as.matrix()
+scfc_mat %>% dim()
+scfc_mat %>% head()
+str_c("min = ", round(min(scfc_mat),3),
+      "| median = ", round(median(scfc_mat),3), "| max = ", round(max(scfc_mat),3))
+
+scfc_mat <- scfc_mat[rownames(sc_mat),]
+
+rownames(sc_mat) <- rownames(sc_mat) %>% str_remove("_GR.+")
+
+rownames(scfc_mat) <- rownames(scfc_mat) %>% str_remove("_GR.+")
+
+identical(rownames(sc_mat), rownames(scfc_mat))
+```
+
+make the heatmap
+```{r}
+f <- colorRamp2(c(-2, 0, 2), c("#53868B", "#8B8878", "#FFD700"))
+
+f_LFCs <- colorRamp2(c(-2, 0, 2),
+                    c("#008B8B", "black", "#B22222"))
+# mat
+ha_1 <- HeatmapAnnotation(
+                          Group = table_groups$group,
+                          Status = table_groups$MSI_status,
+                          Location = table_groups$Location,
+                          BRAF = table_groups$BRAF,
+                          KRAS = table_groups$KRAS,
+                          Lynch = table_groups$Lynch,
+                          MLH1 = table_groups$MLH1,
+                          
+            col = list(
+                Group = table_groups %>%  
+                           select(group, group_col) %>% 
+                           deframe(),
+                Status = table_groups %>%  
+                           select(MSI_status, MSI_status_col) %>% 
+                           deframe(),
+                Location = table_groups %>%  
+                           select(Location, Location_col) %>% 
+                           deframe(),
+                BRAF = table_groups %>%  
+                           select(BRAF, BRAF_col) %>% 
+                           deframe(),
+                KRAS = table_groups %>%  
+                           select(KRAS, KRAS_col) %>% 
+                           deframe(),
+                Lynch = table_groups %>%  
+                           select(Lynch, Lynch_col) %>% 
+                           deframe(),
+                MLH1 = table_groups %>%  
+                           select(MLH1, MLH1_col) %>% 
+                           deframe() ),
+            annotation_name_side = "left"
+            )
+# lFCS
+ha_1_LFCs <- HeatmapAnnotation(Method = c("FeatureCounts", "salmon"),
+                              col = list(Method = wesanderson::wes_palettes$Moonrise1[c(1,4)] %>%
+                          set_names("FeatureCounts", "salmon")), 
+                          gp = gpar(fontsize = 14))     
+
+ht_1 <- Heatmap(matrix = sc_mat, #data
+        top_annotation = ha_1, #annot
+        col = f, #colors data  
+        row_title_gp = gpar(fontsize = 20),
+        column_title_gp = gpar(fontsize = 20),
+        column_names_gp = gpar(fontsize = 20),
+        column_names_rot = 45,
+        heatmap_legend_param = list(
+            title_gp = gpar(fontsize = 15, fontface = "bold"),
+            labels_gp = gpar(fontsize = 15)),
+        
+        show_row_dend = TRUE,
+        show_row_names = TRUE,
+        show_column_names = FALSE,
+        name = "z-score \nabundance",
+        column_km = 4,
+        row_km = 4,
+        clustering_distance_columns = "euclidean",
+        clustering_method_columns =  "ward.D2",
+        clustering_method_rows = "ward.D2",
+        clustering_distance_rows = "euclidean",
+        row_dend_reorder = TRUE,
+        row_title = "piRNAs",
+        column_title = str_glue("Heatmap of {nrow(sc_mat)} common piRNAs\nidentified DE in transcriptomic and genomic approaches"),
+)
+
+ht_1_lFCs <- Heatmap(matrix = scfc_mat, #data
+        top_annotation = ha_1_LFCs, #annot
+        col = f_LFCs, #colors data   
+        row_title_gp = gpar(fontsize = 20),
+        column_title_gp = gpar(fontsize = 20),
+        column_names_gp = gpar(fontsize = 20),
+        heatmap_legend_param = list(
+            title_gp = gpar(fontsize = 15, fontface = "bold"),
+            labels_gp = gpar(fontsize = 15)),
+        show_row_dend = FALSE,
+        show_column_dend = FALSE,
+        show_row_names = TRUE,
+        show_column_names = FALSE,
+        name = "Log Fold Change",
+        clustering_distance_columns = "spearman",
+        clustering_method_columns =  "ward.D2",
+        clustering_method_rows = "ward.D2",
+        clustering_distance_rows = "spearman",
+        row_dend_reorder = TRUE
+)
+draw(ht_1 + ht_1_lFCs,
+      column_title = str_glue("Heatmap of {nrow(sc_mat)} DE piRNAs"), merge_legend = TRUE)
+
+tiff(filename = file.path("FIG_41_piRNA_common_DE_CRC_patients.tiff"),
+     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+
+draw(ht_1 + ht_1_lFCs , merge_legend = TRUE)
+
+dev.off()
+
+```
