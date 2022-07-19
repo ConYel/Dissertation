@@ -77,24 +77,26 @@ Entr_Gene_Ids <- bitr( pred_genes$Gene_name,
                      fromType="SYMBOL", 
                      toType="ENTREZID", OrgDb="org.Hs.eg.db")
 
-Entr_Gene_Ids %>% nrow() #only one got dropped
+Entr_Gene_Ids %>% nrow() #only two got dropped
 ```
 
 perform GO enrichment analysis
 ```{r}
-ggo <- groupGO(gene     = Entr_Gene_Ids$ENTREZID,
-               OrgDb    = org.Hs.eg.db,
-               ont      = "BP",
-               level    = 10,
-               readable = TRUE)
-
 goenr <- enrichGO(Entr_Gene_Ids$ENTREZID, ont = "MF", OrgDb = 'org.Hs.eg.db')
 
-head(ggo)
-ggo %>% filter(Count > 1)
+wpp <- enrichWP(Entr_Gene_Ids$ENTREZID, organism = "Homo sapiens")
+
+mkk <- enrichMKEGG(gene = Entr_Gene_Ids$ENTREZID,
+                   organism = "hsa",
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
 
 reactome_path <- enrichPathway(gene = Entr_Gene_Ids$ENTREZID, 
                                pvalueCutoff = 0.05, readable = TRUE)
+head(mkk, 20)               
+head(wpp, 20)
+head(goenr, 20)
+head(reactome_path, 20)
 
 reactome_path %>% 
     as_tibble %>% 
@@ -123,6 +125,7 @@ PhD_theme <-
         axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
         axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
         axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.text.y = element_text(size = 20),
         plot.title = element_text(hjust = 0.5)
       )
   )
@@ -139,10 +142,10 @@ goenr_RF <- mutate(goenr, richFactor = Count / as.numeric(sub("/\\d+", "", BgRat
 
 goenr_plot <- ggplot(goenr_RF, showCategory = 13,
   aes(richFactor, fct_reorder(Description, richFactor))) + 
-  geom_segment(aes(xend=0, yend = Description)) +
-  geom_point(aes(color=p.adjust, size = Count)) +
+  geom_segment(aes(xend = 0, yend = Description)) +
+  geom_point(aes(color = p.adjust, size = Count)) +
   scale_color_gradientn(colours = wes_cols,
-                        guide = guide_colorbar(reverse=TRUE, order=1)) +
+                        guide = guide_colorbar(reverse = TRUE, order = 1)) +
   scale_size_continuous(range=c(2, 10)) +
   PhD_theme + 
   xlab("Rich Factor") +
@@ -155,7 +158,7 @@ goenr_plot
 dev.off()
 ```
 
-plot enrichment of reactome pathways
+plot enrichment of Reactome pathways
 ```{r}
 reactome_path_RF <- mutate(reactome_path , 
                            richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
@@ -176,5 +179,19 @@ tiff(filename = file.path("FIG_24_Enriched_Reactome_COLO205_106_genes.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 reactome_enr
 dev.off()
+```
+
+
+search Molecular Signatures Database collection of hallmark genes
+```{r}
+library(msigdbr)
+
+m_t2g <- msigdbr(species = "Homo sapiens", 
+                 category = "H") %>% 
+        select(gs_name, entrez_gene)
+
+head(m_t2g)
+em <- enricher(Entr_Gene_Ids$ENTREZID,  TERM2GENE = m_t2g)
+head(em)
 ```
 
