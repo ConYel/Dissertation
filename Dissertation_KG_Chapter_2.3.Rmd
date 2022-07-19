@@ -26,7 +26,7 @@ This project contains the scripting part of the Doctoral Dissertation of **Konst
   
 ## 2.3 Analysis of samples from patients with CRC and comparison with previous analyses.
 
-###  Gene predicted targets that can be found inside RIP-seq of PIWIL1 in COLO205
+###  DE sncRNAs and piRNAs
 
 Import Libraries
 ```{r}
@@ -110,8 +110,7 @@ DE piRNAs, keep the union of both approaches
 DE_piRNA <- CRC_tissues %>% 
     filter(adj.P.Val < 0.05, gene_type == "piRNA") %>% 
     select(smallRNA:logFC) %>% 
-    pivot_wider(names_from = quantification, values_from = logFC) %>% 
-    drop_na
+    pivot_wider(names_from = quantification, values_from = logFC) 
 ```
 
 import the exprs values from featurecounts for the common DE piRNAs
@@ -147,8 +146,8 @@ stopifnot(identical(as.character(table_groups$name), colnames(sc_mat)))
 scfc_mat <- DE_piRNA %>% column_to_rownames("smallRNA") %>% as.matrix()
 scfc_mat %>% dim()
 scfc_mat %>% head()
-str_c("min = ", round(min(scfc_mat),3),
-      "| median = ", round(median(scfc_mat),3), "| max = ", round(max(scfc_mat),3))
+str_c("min = ", round(min(scfc_mat, na.rm = T),3),
+      "| median = ", round(median(scfc_mat, na.rm = T),3), "| max = ", round(max(scfc_mat, na.rm = T),3))
 
 scfc_mat <- scfc_mat[rownames(sc_mat),]
 
@@ -217,11 +216,11 @@ ht_1 <- Heatmap(matrix = sc_mat, #data
             labels_gp = gpar(fontsize = 15)),
         
         show_row_dend = TRUE,
-        show_row_names = TRUE,
+        show_row_names = FALSE,
         show_column_names = FALSE,
         name = "z-score \nabundance",
         column_km = 4,
-        row_km = 4,
+        row_km = 3,
         clustering_distance_columns = "euclidean",
         clustering_method_columns =  "ward.D2",
         clustering_method_rows = "ward.D2",
@@ -242,7 +241,7 @@ ht_1_lFCs <- Heatmap(matrix = scfc_mat, #data
             labels_gp = gpar(fontsize = 15)),
         show_row_dend = FALSE,
         show_column_dend = FALSE,
-        show_row_names = TRUE,
+        show_row_names = FALSE,
         show_column_names = FALSE,
         name = "Log Fold Change",
         clustering_distance_columns = "spearman",
@@ -262,3 +261,29 @@ draw(ht_1 + ht_1_lFCs , merge_legend = TRUE)
 dev.off()
 
 ```
+
+
+###  Gene predicted targets for the DE piRNA from CRC patients
+
+import the table with predicted targets
+```{r}
+total_pred_targ <- vroom("Chapter_2_3/piRNA_predicted_Targets.v02.txt")
+```
+
+search the union of DE piRNAs from both FC and salmon
+```{r}
+union_DE_piRNA <- CRC_tissues %>% 
+    filter(adj.P.Val < 0.05, gene_type == "piRNA") %>% 
+    distinct(smallRNA) %>% 
+    deframe()
+
+total_pred_targ %>% 
+    filter(piRNA_id %in% union_DE_piRNA) %>% 
+    distinct(piRNA_id)
+
+total_pred_targ %>% 
+    filter(piRNA_id %in% union_DE_piRNA) %>% 
+    distinct(piRNA_id, Target_gene_name, .keep_all = TRUE) %>% 
+    vroom_write("Chapter_2_3/Pred_targets_140_DE_piRNA.txt")
+```
+
