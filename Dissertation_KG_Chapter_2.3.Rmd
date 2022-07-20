@@ -45,7 +45,7 @@ library(ComplexHeatmap)
 library(circlize)
 
 library(clusterProfiler)
-
+library(wppi)
 library(ReactomePA)
 library(enrichplot)
 library(forcats)
@@ -281,9 +281,159 @@ total_pred_targ %>%
     filter(piRNA_id %in% union_DE_piRNA) %>% 
     distinct(piRNA_id)
 
-total_pred_targ %>% 
+piRNA_DE_targets <- total_pred_targ %>% 
     filter(piRNA_id %in% union_DE_piRNA) %>% 
-    distinct(piRNA_id, Target_gene_name, .keep_all = TRUE) %>% 
+    distinct(piRNA_id, Target_gene_name, .keep_all = TRUE) 
+
+piRNA_DE_targets %>% 
     vroom_write("Chapter_2_3/Pred_targets_140_DE_piRNA.txt")
+
+gene_targets <- unique(piRNA_DE_targets$Target_gene_name) 
+```
+
+find PPIs for genes of interest
+```{r}
+# HPO annotations set
+HPO_data <- wppi_hpo_data()
+
+# search for gene symbols correlated to cancer of carcinoma
+HPO_interest <- HPO_data %>% 
+  filter(str_detect(Name, "cancer|carcinoma"))
+
+db <- wppi_data(datasets = c('omnipath', 'kinaseextra')) # here
+
+graph_op <- graph_from_op(db$omnipath)
+
+# subset the graph with regard to the predicted target genes
+graph_op_targets <- subgraph_op(graph_op, gene_targets)
+igraph::vcount(graph_op_targets)
+
+w_adj_targets <- weighted_adj(graph_op_targets, db$hpo, HPO_interest) 
+
+rw_targets <- random_walk(w_adj_targets)
+
+scores_targets <- prioritization_genes(graph_op_targets, rw_targets, gene_targets)
+
+wppi_scores_targets <- unique(scores_targets$gene_symbol) # 46 genes
+
+total_network_targets <- union(wppi_scores_targets, gene_targets)
+
+```
+
+transform Gene Symbols to ENTREZ IDs
+```{r}
+Entr_Gene_Ids <- bitr(total_network_targets, 
+                     fromType="SYMBOL", 
+                     toType="ENTREZID", OrgDb="org.Hs.eg.db")
+
+total_network_targets %>% length()
+Entr_Gene_Ids %>% nrow() #75/76
+```
+
+over-representation analysis of Ontological databases
+```{r}
+goenr <- enrichGO(Entr_Gene_Ids$ENTREZID, ont = "BP", OrgDb = 'org.Hs.eg.db', 
+                  readable = TRUE) %>%
+    as_tibble()
+
+goenr %>% vroom_write("Chapter_2_3/Pred_targets_Enr_GO.txt")
+
+wikienr <- enrichWP(Entr_Gene_Ids$ENTREZID, organism = "Homo sapiens", ) %>%
+    as_tibble()
+
+wikienr %>% vroom_write("Chapter_2_3/Pred_targets_Enr_WIKIPATH.txt")
+
+keggenr <- enrichMKEGG(gene = Entr_Gene_Ids$ENTREZID,
+                   organism = "hsa",
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1) %>%
+    as_tibble()
+
+reactome_path <- enrichPathway(gene = Entr_Gene_Ids$ENTREZID, 
+                               pvalueCutoff = 0.05, readable = TRUE) %>%
+    as_tibble()
+
+reactome_path %>% vroom_write("Chapter_2_3/Pred_targets_Enr_REACTOME.txt")
+```
+
+join the enriched pathways
+```{r}
+wikienr <- wikienr %>% 
+    mutate(richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+reactome_path <- reactome_path %>% 
+    mutate(richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+```
+
+PhD theme for plots
+```{r}
+wes_cols <- c(wesanderson::wes_palettes$Zissou1[5:1])
+
+PhD_theme <-
+  list(
+    #scale_fill_manual(values = wes_cols),
+    #scale_color_manual(values = wes_cols),
+    scale_fill_brewer(palette = "Set1"),
+    theme_bw() +
+      theme(
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 20),
+        axis.line = element_line(),
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.1),
+        text = element_text(size = 20),
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5)
+      )
+  )
+```
+
+plot pathways
+```{r}
+reactomeenr_plot <- reactome_path %>% 
+  head(20) %>% 
+  ggplot(
+  aes(richFactor, fct_reorder(Description, richFactor))) + 
+  geom_segment(aes(xend = 0, yend = Description)) +
+  geom_point(aes(color = p.adjust, size = Count)) +
+  scale_color_gradientn(colours = wes_cols,
+                        guide = guide_colorbar(reverse = TRUE, order = 1)) +
+  scale_size_continuous(range=c(2, 10)) +
+  #facet_wrap(facets = "Pathway", ncol = 1) +
+  xlab("Rich Factor") +
+  ylab("Enriched Pathways") + 
+  ggtitle("Enriched Reactome Pathways in CRC\n patients of the predicted piRNA gene targets")+
+  PhD_theme 
+
+
+tiff(filename = file.path("FIG_42_Enriched_REACTOME_CRC_targets.tiff"),
+     compression = "none", height = 12, width = 18,  units = 'in', res = 600)
+reactomeenr_plot
+dev.off()
+
+wikienr_plot <- wikienr %>% 
+  head(20) %>% 
+  ggplot(
+  aes(richFactor, fct_reorder(Description, richFactor))) + 
+  geom_segment(aes(xend = 0, yend = Description)) +
+  geom_point(aes(color = p.adjust, size = Count)) +
+  scale_color_gradientn(colours = wes_cols,
+                        guide = guide_colorbar(reverse = TRUE, order = 1)) +
+  scale_size_continuous(range=c(2, 10)) +
+  #facet_wrap(facets = "Pathway", ncol = 1) +
+  xlab("Rich Factor") +
+  ylab("Enriched Pathways") + 
+  ggtitle("Enriched Wiki Pathways in CRC\n patients of the predicted piRNA gene targets")+
+  PhD_theme 
+
+
+tiff(filename = file.path("FIG_43_Enriched_WIKIPATH_CRC_targets.tiff"),
+     compression = "none", height = 12, width = 18,  units = 'in', res = 600)
+wikienr_plot
+dev.off()
 ```
 

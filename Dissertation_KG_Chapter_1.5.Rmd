@@ -150,7 +150,7 @@ dev.off()
 ```
 
 
-### Heatmap of comon piRNAs enriched with both Ab in IPP
+### Heatmap of common piRNAs enriched with both Ab in IPP
 
 import the lcpm 
 ```{r}
