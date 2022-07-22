@@ -85,10 +85,10 @@ dat_path %>% map(~dir.create(., recursive = TRUE))
 We will work with TMM normalization of voom with quality weights transformed
 ```{r extract norm dgl}
 fc_vm_QW_TMM <-  read_rds("Chapter_2_2/EDA_CRC_no_batch_GRCh38_17_Jun_2022/featureCounts/list_norm_dgls_featureCounts.rds") %>% 
-    magrittr::extract2("voom_TMM")
+    magrittr::extract2("voomQW_TMM")
 
 salmon_vm_QW_TMM <-  read_rds("Chapter_2_2/EDA_CRC_no_batch_GRCh38_17_Jun_2022/salmon/list_norm_dgls_salmon.rds") %>% 
-    magrittr::extract2("voom_TMM")
+    magrittr::extract2("voomQW_TMM")
 ```
 
 #### 3. Create the design matrix
