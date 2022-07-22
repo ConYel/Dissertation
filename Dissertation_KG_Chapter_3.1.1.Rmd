@@ -1,0 +1,181 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 3: PIWI-piRNA pathway in the in-vitro Mouse Cardiomyocyte differentiation
+  
+## 3.1.1 DEA for sncRNAs in mouse Cardiomyocytes GSE161081
+
+###  
+
+Import Libraries
+```{r}
+library(readr)
+library(dplyr)
+library(edgeR)
+library(stringr)
+library(purrr)
+library(vroom)
+library(tidyr)
+```
+
+#### Add date of the analysis
+
+We use it as an identifier for the folder and generally the analysis
+```{r todate_of_analysis}
+todate <- format(Sys.time(), "%d_%b_%Y")
+```
+
+#### Make the directory for the results of the DE analysis
+```{r make dirs}
+my_basename <- file.path("Chapter_3/")  ## INPUT name of the main folder 
+my_exp <- "piRNA_GSE161081_cardioMouse" ## INPUT name of the analysis
+genome_input <- "GRCh38" ## INPUT genome version here
+my_tools <- c("salmon", "featureCounts")
+dat_path <- file.path(my_basename, str_glue("DEA_{my_exp}_{genome_input}_{todate}"),
+                      my_tools) %>% set_names(my_tools)
+dat_path %>% map(~dir.create(., recursive = TRUE))
+```
+
+#### 2. Extract normalized objects 
+
+We will work with TMM normalization of voom with quality weights transformed
+```{r extract norm dgl}
+
+fc <- vroom("Chapter_3/EDA_mouse_cardiomyocytes_GRCm38_21_Jul_2022/featureCounts/annotation_fc.txt")
+fc_vm_QW_TMM <-  read_rds("Chapter_3/EDA_mouse_cardiomyocytes_GRCm38_21_Jul_2022/featureCounts/list_norm_dgls_featureCounts.rds") %>% 
+    magrittr::extract2("voomQW_TMM")
+
+salmon_vm_QW_TMM <-  read_rds("Chapter_3/EDA_mouse_cardiomyocytes_GRCm38_21_Jul_2022/salmon/list_norm_dgls_salmon.rds") %>% 
+    magrittr::extract2("voomQW_TMM")
+```
+
+#### 3. Create the design matrix
+
+If we load the voom object we can extract the design matrix 
+```{r design}
+design <- salmon_vm_QW_TMM$design
+```
+
+#### 4. Limma 
+```{r limma_DE}
+nc_RNA_categories <- vroom("Chapter_3/EDA_mouse_cardiomyocytes_GRCm38_21_Jul_2022/featureCounts/annotation_fc.txt") %>% 
+  select(gene_id = GeneID, gene_type) %>% 
+  distinct(gene_id, .keep_all = TRUE) 
+
+## makeContrasts ----
+con_mat <- makeContrasts(
+  iCM_v_CM = CSC_CM - CM,
+  CM_v_CSC = CM - CSC,
+  iCM_v_CSC = CSC_CM - CSC,
+  levels = design)
+
+## salmon ----
+salmon_vm_QW_TMM <- lmFit(salmon_vm_QW_TMM, design = design)
+salmon_vm_QW_TMM <- contrasts.fit(salmon_vm_QW_TMM, con_mat)
+salmon_vm_QW_TMM <- eBayes(salmon_vm_QW_TMM, robust = TRUE)
+
+salmon_DES_long <- con_mat %>% 
+    colnames() %>% 
+    set_names() %>% 
+ map(~salmon_vm_QW_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA")) %>%
+  bind_rows(.id = "contrast") %>% 
+  mutate(quantification = "salmon", .after = smallRNA) %>% 
+  left_join(nc_RNA_categories, by = c("smallRNA" = "gene_id"))
+
+## for venn ---
+salmon_vm_TMM_p <- salmon_DES_long %>% 
+    filter(contrast == "iCM_v_CM") %>% 
+    mutate(salmon_voomQW = 
+           case_when(
+             select(., starts_with("adj.P.Val")) >= 0.05 ~ 0L,
+             select(., starts_with("logFC")) > 0 ~ 1L,
+             select(., starts_with("logFC")) < 0 ~ -1L
+           )) %>% 
+  select(smallRNA , salmon_voomQW) 
+
+## featureCounts ----
+fc_vm_QW_TMM <- lmFit(fc_vm_QW_TMM, design = design)
+fc_vm_QW_TMM <- contrasts.fit(fc_vm_QW_TMM, con_mat)
+fc_vm_QW_TMM <- eBayes(fc_vm_QW_TMM, robust = TRUE)
+
+fc_DES_long <- con_mat %>% 
+    colnames() %>% 
+    set_names() %>% 
+    map(~fc_vm_QW_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA")) %>%
+  bind_rows(.id = "contrast") %>%
+  mutate(quantification = "featureCounts", .after = smallRNA) 
+
+## for venn ---
+fc_vm_TMM_p <- fc_DES_long %>% 
+  filter(contrast == "iCM_v_CM") %>% 
+  mutate(fc_voomQW = 
+           case_when(
+             select(., starts_with("adj.P.Val")) >= 0.05 ~ 0L,
+             select(., starts_with("logFC")) > 0 ~ 1L,
+             select(., starts_with("logFC")) < 0 ~ -1L
+           ))%>% 
+  select(smallRNA , fc_voomQW )
+
+## venn diagram for salmon/fc limma -----
+results <-  salmon_vm_TMM_p %>% 
+  inner_join(fc_vm_TMM_p) %>%  
+    select(-smallRNA)
+
+pdf(file.path(dirname(dat_path[1]), str_c("venn_diagram_DE_salmon_fC_limma_iCM_v_CM_", colnames(con_mat)[1],".pdf")))
+vennDiagram(results, 
+    include=c("up", "down"),
+    counts.col=c("red", "blue"),
+    circle.col = c("red", "blue", "green3"))
+dev.off()
+
+## join both results ----
+identical(fc_DES_long %>% names(), salmon_DES_long %>% names())
+
+
+## sncRNA names
+nc_RNA_names <- file.path("sncRNA_piRNBnk_RNACent_gene_names_GRCm38_v34.gtf.gz") %>% 
+  plyranges::read_gff2() %>% 
+  as_tibble() %>% 
+  select(smallRNA = gene_id, external_id, sncRNA_name) %>% 
+  distinct(smallRNA, .keep_all = TRUE) 
+
+## long formats
+GSE161081_cardioMouse_all_comp_long_format <- bind_rows(salmon_DES_long, fc_DES_long ) %>% 
+    left_join(nc_RNA_names)
+
+GSE161081_cardioMouse_all_comp_long_format %>% vroom_write(file.path(dirname(dat_path[1]), 
+                        str_c("GSE161081_cardioMouse_all_comparisons_long_voom_TMMQW_salmon_fc_LFCs_", 
+                              todate,".txt")))
+```
+
