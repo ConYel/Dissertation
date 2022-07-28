@@ -413,7 +413,6 @@ reactomeenr_plot <- reactome_path %>%
   scale_color_gradientn(colours = wes_cols,
                         guide = guide_colorbar(reverse = TRUE, order = 1)) +
   scale_size_continuous(range=c(2, 10)) +
-  #facet_wrap(facets = "Pathway", ncol = 1) +
   xlab("Rich Factor") +
   ylab("Enriched Pathways") + 
   ggtitle("Enriched Reactome Pathways in CRC\n patients of the predicted piRNA gene targets")+
@@ -434,7 +433,6 @@ wikienr_plot <- wikienr %>%
   scale_color_gradientn(colours = wes_cols,
                         guide = guide_colorbar(reverse = TRUE, order = 1)) +
   scale_size_continuous(range=c(2, 10)) +
-  #facet_wrap(facets = "Pathway", ncol = 1) +
   xlab("Rich Factor") +
   ylab("Enriched Pathways") + 
   ggtitle("Enriched Wiki Pathways in CRC\n patients of the predicted piRNA gene targets")+
