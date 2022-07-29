@@ -26,30 +26,32 @@ This project contains the scripting part of the Doctoral Dissertation of **Konst
   
 ## 2.3 Analysis of samples from patients with CRC and comparison with previous analyses.
 
-###  DE sncRNAs and piRNAs
-
 Import Libraries
 ```{r}
-library(vroom)
-library(dplyr)
-library(tidyr)
-library(purrr)
-library(tibble)
-library(stringr)
-library(ggplot2)
-library(scales)
-library(ggpmisc)
-library(readr)
-library(edgeR)
-library(ComplexHeatmap)
-library(circlize)
+library(vroom)           #
+library(readr)           #
+library(dplyr)           #
+library(tidyr)           # data import and manipulation
+library(purrr)           #
+library(tibble)          #
+library(stringr)         #
+library(forcats)         #
 
-library(clusterProfiler)
-library(wppi)
-library(ReactomePA)
-library(enrichplot)
-library(forcats)
+library(ggplot2)         #
+library(scales)          # make exploration data plots
+library(ggpmisc)         #
+
+library(edgeR)           # identify DEs and
+library(ComplexHeatmap)  # Heatmaps
+library(circlize)        #
+
+library(clusterProfiler) #
+library(wppi)            # Functional enrichment analysis and 
+library(ReactomePA)      # protein protein interaction network
+library(enrichplot)      #
 ```
+
+###  DE sncRNAs per class
 
 import the resulted de sncRNAs of CRC patients
 ```{r}
@@ -63,25 +65,29 @@ wes_cols <- c(wesanderson::wes_palettes$Cavalcanti1,
               wesanderson::wes_palettes$Royal2,
               wesanderson::wes_palettes$Darjeeling2)
 
-PhD_theme <-
+PhD_theme <- # this PHD theme !!!!
   list(
     scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set2"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 25, colour = "black",
+                                  face = "bold"),
         axis.line = element_line(),
-        panel.grid.major = element_line(size = 0.2),
+        panel.grid.major = element_line(size = 0.3),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
-        axis.text.y = element_text(size = 20),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black", face = "bold"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black", face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20,
+                                   colour = "black", face = "bold"),
+        axis.text.y = element_text(size = 20, colour = "black", face = "bold"),
+        plot.title = element_text(hjust = 0.5, colour = "black", face = "bold"),
+        legend.position = "bottom", 
+        legend.direction = "horizontal"
       )
   )
 ```
@@ -91,19 +97,22 @@ plot the amount of DE per sncRNA class
 plot_CRC_DE <- CRC_tissues %>% 
     filter(adj.P.Val < 0.05) %>% 
     ggplot(aes(x = gene_type, fill = gene_type)) +
-    geom_bar(stat = "count")+
+    geom_bar(stat = "count") +
     stat_count(geom = "text", colour = "black", size = 7.5, 
               aes(label = ..count..), position  = position_fill(vjust = 255 )) +
     facet_wrap(facets = "quantification", ncol = 1) + 
-    xlab("sncRNA Class") + 
-    ggtitle("Amount of sncRNAs found DE with each quantification\n approach in CRC patients samples") +
+    xlab("sncRNA Class") +
+    ylab("Count of different sequences") +
+    ggtitle("Amount of DE sncRNAs with each quantification\n approach in CRC patients in-house dataset") +
     PhD_theme
 
-tiff(filename = file.path("FIG_39_CRC_DE_salmon_FC.tiff"),
+tiff(filename = file.path("FIG_40_CRC_DE_salmon_FC.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 plot_CRC_DE
 dev.off()
 ```
+
+### DE piRNAs and heatmap of union of both approaches
 
 DE piRNAs, keep the union of both approaches
 ```{r}
@@ -121,7 +130,6 @@ exprs_mat_tot <- read_rds("Chapter_2_3/EDA_piRNA_CC_tissues_GRCh38_24_Jan_2022/f
     .[DE_piRNA$smallRNA,] # subset to DE piRNAs
 
 ```
-
 
 import the groups table
 ```{r}
@@ -196,13 +204,19 @@ ha_1 <- HeatmapAnnotation(
                 MLH1 = table_groups %>%  
                            select(MLH1, MLH1_col) %>% 
                            deframe() ),
-            annotation_name_side = "left"
+            annotation_name_side = "left",
+            annotation_legend_param = 
+                list(title_gp = gpar(fontsize = 15, fontface = "bold"),
+                     labels_gp = gpar(fontsize = 15, fontface = "bold"))
             )
+
 # lFCS
-ha_1_LFCs <- HeatmapAnnotation(Method = c("FeatureCounts", "salmon"),
-                              col = list(Method = wesanderson::wes_palettes$Moonrise1[c(1,4)] %>%
-                          set_names("FeatureCounts", "salmon")), 
-                          gp = gpar(fontsize = 14))     
+ha_1_LFCs <- HeatmapAnnotation(
+    Method = colnames(scfc_mat),
+    col = list(Method = wesanderson::wes_palettes$Moonrise1[c(1,4)] %>%
+                   set_names(colnames(scfc_mat))),
+    annotation_legend_param = list(title_gp = gpar(fontsize = 15, fontface = "bold"),
+                             labels_gp = gpar(fontsize = 15, fontface = "bold")))     
 
 ht_1 <- Heatmap(matrix = sc_mat, #data
         top_annotation = ha_1, #annot
@@ -251,19 +265,20 @@ ht_1_lFCs <- Heatmap(matrix = scfc_mat, #data
         row_dend_reorder = TRUE
 )
 draw(ht_1 + ht_1_lFCs,
-      column_title = str_glue("Heatmap of {nrow(sc_mat)} DE piRNAs"), merge_legend = TRUE)
+     column_title = str_glue("Heatmap of {nrow(sc_mat)} DE piRNAs"), merge_legend = TRUE,
+     heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
 
-tiff(filename = file.path("FIG_41_piRNA_common_DE_CRC_patients.tiff"),
-     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
+tiff(filename = file.path("FIG_41_piRNA_union_DE_CRC_patients.tiff"),
+     compression = "none", height = 10, width = 16,  units = 'in', res = 600)
 
-draw(ht_1 + ht_1_lFCs , merge_legend = TRUE)
+draw(ht_1 + ht_1_lFCs , merge_legend = TRUE,
+     heatmap_legend_side = "bottom", annotation_legend_side = "bottom")
 
 dev.off()
 
 ```
 
-
-###  Gene predicted targets for the DE piRNA from CRC patients
+### Gene predicted targets for the DE piRNA from CRC patients
 
 import the table with predicted targets
 ```{r}
@@ -314,7 +329,7 @@ rw_targets <- random_walk(w_adj_targets)
 
 scores_targets <- prioritization_genes(graph_op_targets, rw_targets, gene_targets)
 
-wppi_scores_targets <- unique(scores_targets$gene_symbol) # 46 genes
+wppi_scores_targets <- unique(scores_targets$gene_symbol) # 54 genes
 
 total_network_targets <- union(wppi_scores_targets, gene_targets)
 
@@ -368,26 +383,27 @@ reactome_path <- reactome_path %>%
 PhD theme for plots
 ```{r}
 wes_cols <- c(wesanderson::wes_palettes$Zissou1[5:1])
-
 PhD_theme <-
   list(
-    #scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
     scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 25, colour = "black",
+                                  face = "bold"),
         axis.line = element_line(),
-        panel.grid.major = element_line(size = 0.2),
+        panel.grid.major = element_line(size = 0.3),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        axis.text.y = element_text(size = 20, colour = "black"),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black", face = "bold"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black", face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20,
+                                   colour = "black", face = "bold"),
+        axis.text.y = element_text(size = 20, colour = "black", face = "bold"),
+        plot.title = element_text(hjust = 0.5, colour = "black", face = "bold")
       )
   )
 ```
@@ -406,9 +422,8 @@ reactomeenr_plot <- reactome_path %>%
   #facet_wrap(facets = "Pathway", ncol = 1) +
   xlab("Rich Factor") +
   ylab("Enriched Pathways") + 
-  ggtitle("Enriched Reactome Pathways in CRC\n patients of the predicted piRNA gene targets")+
+  ggtitle("Top 20 Enriched Reactome Pathways in CRC\n patients of the predicted piRNA gene targets")+
   PhD_theme 
-
 
 tiff(filename = file.path("FIG_42_Enriched_REACTOME_CRC_targets.tiff"),
      compression = "none", height = 12, width = 18,  units = 'in', res = 600)
@@ -427,7 +442,7 @@ wikienr_plot <- wikienr %>%
   #facet_wrap(facets = "Pathway", ncol = 1) +
   xlab("Rich Factor") +
   ylab("Enriched Pathways") + 
-  ggtitle("Enriched Wiki Pathways in CRC\n patients of the predicted piRNA gene targets")+
+  ggtitle("Top 20 Enriched Wiki Pathways in CRC\n patients of the predicted piRNA gene targets")+
   PhD_theme 
 
 
