@@ -489,10 +489,17 @@ ht_all_lFCs <- Heatmap(matrix = all_lFCs, #data
         row_names_gp = grid::gpar(fontsize = 15),
         heatmap_legend_param = list(
             title_gp = gpar(fontsize = 20, fontface = "bold"),
-            labels_gp = gpar(fontsize = 20))
+            labels_gp = gpar(fontsize = 20)),
+        
+        column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+        column_title = str_glue("Heatmap of {nrow(all_lFCs)} common piRNAs\nidentified DE both comparisons")
         )
-```
 
+tiff(filename = file.path("FIG_48_piRNA_common_all_lFCs_DE_cardiomyo_patients.tiff"),
+     compression = "none", height = 16, width = 16,  units = 'in', res = 600)
+draw(ht_all_lFCs)
+dev.off()
+```
 
 ###  Gene predicted targets for the DE piRNA from mouse cardiomyocytes
 
