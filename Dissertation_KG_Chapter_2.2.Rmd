@@ -39,29 +39,6 @@ library(vroom)
 library(tidyr)
 ```
 
-
-```{r}
-
-
-library(tidyr)
-
-library(tibble)
-library(stringr)
-library(ggplot2)
-library(scales)
-library(ggpmisc)
-library(readr)
-library(edgeR)
-library(ComplexHeatmap)
-library(circlize)
-
-library(clusterProfiler)
-library(wppi)
-library(ReactomePA)
-library(enrichplot)
-library(forcats)
-```
-
 #### Add date of the analysis
 
 We use it as an identifier for the folder and generally the analysis
@@ -184,7 +161,6 @@ dev.off()
 
 ## join both results ----
 identical(fc_DES %>% names(), salmon_DES %>% names())
-
 
 ## sncRNA names
 nc_RNA_names <- file.path("sncRNA_piRNBnk_RNACent_piCdb_gene_names_GRCh38_v34.gtf.gz") %>% 
