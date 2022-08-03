@@ -65,20 +65,22 @@ PhD_theme <-
   list(
     scale_fill_manual(values = wes_cols),
     scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -143,22 +145,26 @@ stopifnot(identical(MG_SUM, sncMG_SUM))
 
 PhD theme for plots
 ```{r}
+
 PhD_theme <-
   list(
     scale_fill_brewer(palette = "Set1"),
-        theme_bw() +
+    theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
