@@ -69,20 +69,22 @@ PhD_theme <-
   list(
     scale_fill_manual(values = wes_cols),
     scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -118,22 +120,26 @@ reads_DBS <- read_xlsx("Chapter_1_3/Table_S3_Sellitto_et_al.xlsx", skip = 4) %>%
 
 PhD theme for plots
 ```{r}
+
 PhD_theme <-
   list(
     scale_fill_brewer(palette = "Set1"),
-        theme_bw() +
+    theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -182,20 +188,22 @@ PhD_theme <-
   list(
     scale_fill_manual(values = wes_cols),
     scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -234,7 +242,7 @@ p_treat_comp <- p_treat_main +
     xlab("Log10 Mean Counts per Millions, Treated COLO205 Samples") +
     ggtitle("Effect of sodium-periodate treatment to each of the sncRNA classes") 
     
-tiff(filename = file.path("FIG_18_effect_treatment_Colo205_.tiff"),
+tiff(filename = file.path("FIG_19_effect_treatment_Colo205_.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 p_treat_comp
 dev.off()
@@ -299,15 +307,18 @@ PhD_theme <-
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```

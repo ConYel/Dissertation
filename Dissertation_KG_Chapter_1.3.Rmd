@@ -165,10 +165,7 @@ tiff(filename = file.path("FIG_16_piRNA_most_var_CRC_lines_Testis.tiff"),
 ht_1
 dev.off()
 
-tiff(filename = file.path("FIG_16_piRNA_most_expr_CRC_lines_Testis.tiff"),
-     compression = "none", height = 10, width = 14,  units = 'in', res = 600)
-ht_c
-dev.off()
+
 ```
 
 
