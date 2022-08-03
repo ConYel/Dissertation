@@ -39,7 +39,7 @@ library(ggplot2)
 Explore GTEx and make FIG 8
 Import the data to R
 ```{r import median gene expression}
-gtex_median_v8 <- vroom("GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz", skip = 2) %>% 
+gtex_median_v8 <- vroom("Chapter_1_1/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct.gz", skip = 2) %>% 
     filter(str_detect(Description, "PIWIL")) %>% 
     pivot_longer(cols = - c(Name, Description), names_to = "Tissue", values_to = "MEDIAN_TPM") %>% 
     mutate(Tissue = str_replace_all(Tissue, "-", "_") %>% str_replace_all(" ", "")) %>%
@@ -60,22 +60,23 @@ wes_cols <- c(wesanderson::wes_palettes$BottleRocket1)
 
 PhD_theme <-
   list(
-    #scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
     scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -142,8 +143,6 @@ library(circlize)
 
 library(tidybulk)
 library(tidySummarizedExperiment)
-
-
 ```
 
 get TCGA data
@@ -404,22 +403,24 @@ wes_cols <- c(wesanderson::wes_palettes$Darjeeling1,
 
 PhD_theme <-
   list(
-    scale_fill_manual(values = wes_cols),
+     scale_fill_manual(values = wes_cols),
     scale_color_manual(values = wes_cols),
-    #scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -517,7 +518,6 @@ ht_1
 dev.off()
 ```
 
-
 ### *PIWIL* genes in Expression Atlas, E-MTAB-2706 project  
 
 Import Libraries
@@ -569,14 +569,18 @@ PhD_theme <-
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
