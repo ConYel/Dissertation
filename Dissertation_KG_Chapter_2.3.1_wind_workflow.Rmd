@@ -1,0 +1,1239 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 2: Data Analysis Workflow for small-RNAseq focused on piRNAs  
+  
+## 2.3.1 Analysis of samples from patients with CRC and comparison with previous analyses.
+
+The WIND pipeline
+
+
+## Use docker for the quality control plus adapter trimming
+```{bash preprocessing}
+docker run --rm -ti -v /folder/to/the/projects:/home/my_data/projects -v /folder/to/the/samples/:/home/my_data/samples  congelos/sncrna_workflow
+
+SAMPLES_FOLDER="my_data/samples"
+ANALYSIS_FOLDER="my_data/projects/the_pirnas_in_CC"
+
+mkdir "${ANALYSIS_FOLDER}"/qc_before_trim "${ANALYSIS_FOLDER}"/qc_after_trim \
+"${ANALYSIS_FOLDER}"/quants  "${ANALYSIS_FOLDER}"/star
+
+'fastqc' --threads 6 --outdir="${ANALYSIS_FOLDER}"/qc_before_trim \
+"${SAMPLES_FOLDER}"/*fastq.gz 
+
+for file in "${SAMPLES_FOLDER}"/*.fastq.gz;  
+do 
+./spar_prepare/smrna_adapter_cut.sh $file 7; 
+done
+
+'fastqc' --threads 8 --outdir="${ANALYSIS_FOLDER}"/qc_after_trim \
+"${SAMPLES_FOLDER}"/*.trimmed.fastq.gz
+
+exit
+```
+
+## Alignment and Quantification
+### i. Transcript abundances with __[Salmon](https://github.com/COMBINE-lab/salmon)__
+
+We will use a public docker image to run salmon
+```{bash salmon}
+# run the docker
+docker run --rm -it -v $(pwd):/home/my_data combinelab/salmon
+
+SAMPLES_FOLDER="my_data/samples"
+ANALYSIS_FOLDER="my_data/projects/the_pirnas_in_CC"
+
+# run the samples
+
+for fn in "${SAMPLES_FOLDER}"/*.trimmed.fastq.gz;   
+do  samp=`basename ${fn}`;   
+regex="${samp%%.trimmed.fastq.gz}";   
+echo "Processing sample ${samp} start: $(date)";   
+salmon quant -i my_data/projects/wind/human_data/indexes/GRCh38_v34_public_salmon  \
+-l A -r ${fn} --seqBias --gcBias --numBootstraps 100  -p 8 \
+--validateMappings --writeMappings="${ANALYSIS_FOLDER}/quants/${regex}.sam" \
+-o "${ANALYSIS_FOLDER}/quants/${regex}_quant"; 
+echo "end:$(date)";
+done
+exit
+docker run --rm -ti -v /folder/to/the/projects:/home/my_data/projects -v /folder/to/the/samples/:/home/my_data/samples  congelos/sncrna_workflow
+
+#docker run --rm -ti -v /root/Documenti/projects:/home/my_data/projects -v /mnt/NFS_SHARE_3/Costantino/1_FASTQ_Samples/furlan_fq_samples/:/home/my_data/samples  congelos/sncrna_workflow 
+
+#save as bam files
+for file in "${ANALYSIS_FOLDER}"/quants/*.sam;
+do 
+regex="${file%%.sam}";
+echo "Processing sample ${regex} start: $(date)"; 
+echo samtools view -O bam -o ${regex}.bam -@ 6 ${file};
+echo "end:$(date)";
+done
+
+# remove all .sam files
+rm ${ANALYSIS_FOLDER}/quants/*.sam
+```
+
+### ii. Alignment with STAR
+We use the __[STAR](https://github.com/alexdobin/STAR)__ aligner and then
+perform quantification with featureCounts of __[Rsubread](https://www.bioconductor.org/packages/release/bioc/html/Rsubread.html)__ package.
+```{bash STAR}
+for file in  "${SAMPLES_FOLDER}"/*.trimmed.fastq.gz; 
+do 
+samp=`basename ${file}`; 
+regex="${samp%%.trimmed.fastq.gz}"; 
+echo "Processing sample ${samp} start: $(date)"; 
+STAR --genomeDir my_data/projects/wind/human_data/indexes/GRCh38_v34_public_STAR \
+--genomeLoad LoadAndKeep --readFilesIn ${file} --readFilesCommand zcat \
+--runThreadN 6 --alignIntronMax 1 --outSAMattributes NH HI NM MD \
+--outFilterMultimapNmax 100 --outSAMtype BAM SortedByCoordinate \
+--limitBAMsortRAM 40000000000 --outReadsUnmapped Fastx \
+--outFilterMismatchNmax 1 --outFilterMatchNmin 14 \
+--outFileNamePrefix "${ANALYSIS_FOLDER}/star/${regex}_align/${regex}_";  
+echo "end:$(date)";
+done
+
+exit
+```
+Next, we run a docker image which includes various R packages that
+will be used in the downstream analysis following featurecounts
+for the exploratory data analysis of piRNA data
+
+### R docker
+```{bash docker for R}
+docker run --rm --cpus="6.5"  -v $(pwd):/home/$USER/projects -p 8787:8787 -e PASSWORD=12345 -e USER=$USER -e USERID=$UID  rocker_tidyverse_plus_de_pckages:v_3_14
+```
+
+From here on we work on Rstudio using a browser. 
+we input http://localhost:8787/ on browser, 0 for username and 12345 for password.
+
+### iv. __[featureCounts](http://subread.sourceforge.net/)__
+```{r featureCounts}
+library(Rsubread)
+library(tidyverse)
+
+ANALYSIS_FOLDER <- file.path(".")
+  
+list.BAM <- list.files(path = file.path(ANALYSIS_FOLDER, "star"), 
+                       pattern = ".bam$", 
+                       recursive = TRUE, 
+                       full.names = TRUE)
+
+path_gtf <- file.path("../wind","human_data","sncRNA_piRNBnk_RNACent_GRCh38_v34.gtf.gz")
+todate <- format(Sys.time(), "%d_%b_%Y")
+
+fc <- featureCounts(files = list.BAM,
+                    annot.ext =  path_gtf,
+                    isGTFAnnotationFile = TRUE,
+                    GTF.featureType = "exon",
+                    GTF.attrType.extra = c("gene_type", "sRNA_id", "seq_RNA"),
+                    nthreads = 10,
+                    useMetaFeatures = TRUE,
+                    allowMultiOverlap = TRUE,
+                    minOverlap = 10,
+                    largestOverlap = TRUE,
+                    fraction = TRUE,
+                    strandSpecific = 0,
+                    verbose = TRUE,
+                    reportReads = "BAM",
+                    reportReadsPath = file.path(ANALYSIS_FOLDER, "star")) 
+
+fc %>% 
+  write_rds(file = str_glue(file.path(ANALYSIS_FOLDER, "feature_counts_"), 
+                            "CC_tissues_{todate}.rds"))
+```
+
+# Exploratory Data Analysis
+## 1. Load libraries
+```{r load libraries}
+suppressPackageStartupMessages({
+  library('tidyverse') 
+  library('data.table')
+  library('plyranges')
+  library('tximport')
+  library('edgeR')
+  library('NOISeq')
+  library('rafalib')
+  library('pheatmap')
+  library('RColorBrewer')
+  library('jsonlite')
+})
+```
+
+## 2. Directory generation for the resulted files
+### i. Add date
+Used as an identifier for the folder 
+```{r todate_of_analysis}
+todate <- format(Sys.time(), "%d_%b_%Y")
+```
+
+### ii. Make the directory for the results of the exploratory data analysis
+```{r make dirs}
+my_basename <- file.path(".") ## INPUT name of the main folder 
+my_exp <- "piRNA_CC_tissues" ## INPUT name of the analysis
+genome_input <- "GRCh38" ## INPUT genome version here
+my_tools <- c("salmon", "featureCounts")
+dat_path <- file.path(my_basename, str_glue("EDA_{my_exp}_{genome_input}_{todate}"),
+                      my_tools)
+dat_path %>% map(~dir.create(., recursive = TRUE))
+```
+
+## 3. Make or import the targets file.
+The targets file has to have at least three columns with column names: "sample_name", "group", "batch"
+```{r targets file}
+# find the files
+## bam files star
+star_paths <- file.path(my_basename, "star") %>% 
+  list.files( pattern = "featureCounts.bam", recursive = TRUE, 
+              full.names = TRUE)
+
+names(star_paths) <- star_paths %>%  
+  basename() %>% 
+  str_remove("_.+")
+
+## quant files salmon
+salmon_paths <- list.files(path = my_basename, pattern = ".sf",
+  recursive = TRUE, full.names = TRUE)
+
+names(salmon_paths) <- salmon_paths %>% 
+  str_remove(".quant.sf") %>% 
+  basename() %>% 
+  str_remove("_quant")
+
+# samples information
+samples <- 1:45
+group <- c(rep("Tumour",14), rep("Control", 9), rep("Tumour", 4),
+               rep("Control", 4), rep("Tumour",14))
+
+MSI_status <- c(rep("MSS",12), rep("MSI", 2), rep("Diverticulitis", 2),
+               "Ulcer", rep("Diverticulitis", 6), rep("MSS", 4),
+               rep("Adjacent", 4), rep("MSI",14))
+
+Location <- c(rep("sx",2), "rectum", rep("sx", 4), "dx", "sx",
+              "dx", rep("sx",2), rep("dx",2), rep("sigma",2),
+              "dx", "sigma", rep("Disc_sigma",2), rep("sigma",3),
+              "colon", "dx", "mts_polm", "dx", rep("unknown", 4),
+              rep("dx", 10), "sx", rep("dx", 3))
+
+BRAF <- c(rep("wt",12), rep("V600E", 2), rep("Control", 9), 
+          rep("V600E", 4), rep("Control", 4), rep("V600E",12),
+          "wt","V600E")
+
+KRAS <-c(rep("wt",2), "G12A", rep("wt", 11), rep("Control", 9), 
+          rep("wt", 4), rep("Control", 4), rep("wt",9),
+          rep("mut", 2), "wt", "mut","wt")
+
+Lynch <- c(rep("No",37), rep("Lynch_syndr", 7), "No")
+
+MLH1 <- c(rep("unmet",12), rep("MET", 2), rep("Control", 9), 
+          rep("unmet", 4), rep("Control", 4), rep("MET",4),
+          rep("unknown", 2), rep("MLH1_germ", 7), "unknown")
+
+batch_date <- c("30-Sep-15", "19-Oct-15", "05-Oct-15", "19-Oct-15",
+           "05-Oct-15", 
+           "30-Sep-15", "27-Oct-15", "08-Set-15", "08-Set-15", 
+           "27-Oct-15", 
+           "27-Oct-15", "30-Sep-15", "05-Oct-15","27-Oct-15",
+           "19-Oct-15", "05-Oct-15", "30-Sep-15", "08-Oct-15", "08-Set-15",
+           "08-Set-15", "08-Oct-15", "08-Oct-15", "19-Oct-15",
+           "08-Oct-15",
+           "08-Set-15", "19-Oct-15", "08-Oct-15",
+           "27-Oct-15", "27-Oct-15",
+           "27-Oct-15", "08-Oct-15", "30-Sep-15", "30-Sep-15",
+           "30-Sep-15", "27-Oct-15", "30-Sep-15", "08-Set-15",
+           "08-Set-15", "27-Oct-15", "19-Oct-15", 
+           "30-Sep-15", "30-Sep-15",
+           "30-Sep-15", "08-Set-15", "08-Set-15", "08-Oct-15",
+           "27-Oct-15", "30-Sep-15", "27-Oct-15", "08-Set-15", 
+           "30-Sep-15")
+
+# make the targets table
+targets_pre <- tibble(samples, group, MSI_status, Location, BRAF, 
+                      KRAS, Lynch, MLH1)
+
+targets_file <- star_paths %>% 
+  enframe(value = "star_paths") %>% 
+  mutate(samples = name %>% 
+           str_remove_all(c("^C|_.+|-.+")) %>% 
+           as.numeric()) %>% 
+  add_column(salmon_paths) %>% 
+  arrange(samples) %>% 
+  add_column(batch_date) %>% 
+  mutate(batch = case_when(
+    batch_date == "08-Set-15" ~ "A",
+    batch_date == "30-Sep-15" ~ "B",
+    batch_date == "05-Oct-15" ~ "C",
+    batch_date == "08-Oct-15" ~ "D",
+    batch_date == "27-Oct-15" ~ "F",
+    batch_date == "19-Oct-15" ~ "G",
+  )) %>% 
+  select(name, star_paths, salmon_paths,  samples, batch, batch_date) %>% 
+  left_join(targets_pre) %>% 
+  mutate(samples_fc = star_paths %>% basename() %>% str_remove(".out.bam.+")) %>% 
+  mutate(across(.cols = !c(star_paths, salmon_paths, samples), as_factor))
+
+targets_file$group %>% levels()
+```
+
+## 4. Import the salmon files
+```{r import salmon}
+# tximport-------
+txi <- tximport::tximport(targets_file$salmon_paths, type = "salmon",
+  txOut = TRUE, countsFromAbundance = "lengthScaledTPM")
+```
+
+## 5. Make a DGElist object for salmon
+```{r DGElist salmon}
+# DGElist
+# from https://bioconductor.org/packages/release/bioc/vignettes/tximport/inst/doc/tximport.html
+# we follow the instructions to import for edgeR 
+cts <- txi$counts
+normMat <- txi$length
+
+# change the colnames of the salmon objects
+identical(as.character(targets_file$name), str_remove(colnames(cts), "_L.+"))
+colnames(cts) <- targets_file$name
+colnames(normMat) <- targets_file$name
+
+# Obtaining per-observation scaling factors for length, adjusted to avoid
+# changing the magnitude of the counts
+normMat <- normMat/exp(rowMeans(log(normMat)))
+normCts <- cts/normMat
+
+# Computing effective library sizes from scaled counts, to account for
+# composition biases between samples
+eff.lib <- calcNormFactors(normCts) * colSums(normCts)
+
+# Combining effective library sizes with the length factors, and calculating
+# offsets for a log-link GLM
+normMat <- sweep(normMat, 2, eff.lib, "*")
+normMat <- log(normMat)
+
+# Creating a DGEList object for use in edgeR.
+dgl_salmon <- DGEList(cts, samples = targets_file) %>% 
+  scaleOffset(normMat) %>% 
+  write_rds(file.path(dat_path[1],"dgl_edgeR_salmon.rds"))
+
+# remove objects.
+rm(cts, normCts, normMat, txi)
+```
+
+## 6. Import the featureCounts object and make a DGElist object
+```{r DGElist FeatureCounts}
+# load the rds from featureCounts ----
+# INPUT rds featureCOunts
+fc <- list.files(path = my_basename,
+                 pattern = ".+counts.+.rds", 
+                 full.names = TRUE) %>% 
+  read_rds()
+
+dgl_fc <- edgeR::featureCounts2DGEList(fc)
+dgl_fc <- dgl_fc[, as.character(targets_file$samples_fc), ]
+
+# check if the matrix has the same colnames as the targets table
+identical(as.character(targets_file$samples_fc),
+          colnames(dgl_fc))
+
+# change sample names
+colnames(dgl_fc) <- colnames(dgl_fc) %>% str_remove("_.+")
+
+# add the targets information
+dgl_fc$samples <- dgl_fc$samples %>% 
+  as_tibble(rownames = "name") %>% 
+  select(-group) %>% 
+  left_join(targets_file)
+
+# write the matrix for the analysis, annotation stats-----
+fc$counts[, str_c(targets_file$samples_fc,".out.bam")] %>% 
+  as_tibble(rownames = "sRNA") %>% 
+  write_tsv(file.path(dat_path[2], "raw_reads_fc.txt"))
+
+fc$annotation %>% 
+  as_tibble() %>% 
+  write_tsv(file.path(dat_path[2],"annotation_fc.txt"))
+
+fc$stat %>% 
+  select("Status", str_c(targets_file$samples_fc,".out.bam")) %>% 
+  as_tibble() %>% 
+  write_tsv(file.path(dat_path[2],"stats_fc.txt"))
+
+# give colours to samples ----
+group_col <- tibble(group_col = c('#e41a1c','#377eb8',
+                         '#4daf4a','#984ea3',
+                         '#ff7f00','#ffff33',
+                         '#a65628','#f781bf')) %>% 
+  dplyr::slice(1:length(levels(as_factor(targets_file$group)))) %>% 
+  mutate(group = as_factor(levels(targets_file$group)))
+
+batch_col <- viridis::cividis(n = length(levels(targets_file$batch))) %>% 
+  enframe(name = "batch", value = "batch_col") %>% 
+  mutate(batch = as_factor(levels(targets_file$batch)))
+  
+MSI_status_col <- viridis::inferno(n = length(levels(targets_file$MSI_status))) %>% 
+  enframe(name = "MSI_status", value = "MSI_status_col") %>% 
+  mutate(MSI_status = as_factor(levels(targets_file$MSI_status)))
+
+Location_col <- viridis::mako(n = length(levels(targets_file$Location))) %>% 
+  enframe(name = "Location", value = "Location_col") %>% 
+  mutate(Location = as_factor(levels(targets_file$Location)))
+
+BRAF_col <- viridis::rocket(n = length(levels(targets_file$BRAF))) %>% 
+  enframe(name = "BRAF", value = "BRAF_col") %>% 
+  mutate(BRAF = as_factor(levels(targets_file$BRAF)))
+
+KRAS_col <- viridis::turbo(n = length(levels(targets_file$KRAS))) %>% 
+  enframe(name = "KRAS", value = "KRAS_col") %>% 
+  mutate(KRAS = as_factor(levels(targets_file$KRAS)))
+
+Lynch_col <- viridis::plasma(n = length(levels(targets_file$Lynch))) %>% 
+  enframe(name = "Lynch", value = "Lynch_col") %>% 
+  mutate(Lynch = as_factor(levels(targets_file$Lynch)))
+
+MLH1_col <- viridis::rocket(n = length(levels(targets_file$MLH1))) %>% 
+  enframe(name = "MLH1", value = "MLH1_col") %>% 
+  mutate(MLH1 = as_factor(levels(targets_file$MLH1)))
+
+Colours_fc <- targets_file %>% 
+  select(-c(star_paths, salmon_paths, batch_date, samples_fc)) %>% 
+  left_join(group_col) %>% 
+  left_join(batch_col) %>% 
+  left_join(MSI_status_col) %>% 
+  left_join(Location_col) %>% 
+  left_join(BRAF_col) %>% 
+  left_join(KRAS_col) %>% 
+  left_join(Lynch_col) %>% 
+  left_join(MLH1_col)
+  
+dgl_fc$colours <- Colours_fc
+
+# export the dglf_fc
+dgl_fc %>% write_rds(file.path(dat_path[2],"dgl_edgeR_fc.rds"))
+
+```
+
+## 7. Create biodetection plot with NOISeq
+```{r biodetection plot}
+mybiotypes <- fc$annotation %>% 
+  mutate(gene_type = gene_type %>% str_remove(";.+")) %>% 
+  select(GeneID, gene_type) %>% 
+  column_to_rownames("GeneID")
+
+function_Noiseq_plots <- function(exp_data, plot_path){
+  mydata <- NOISeq::readData(data = exp_data, 
+  factors = as.data.frame(targets_file),
+  biotype = mybiotypes)
+  mybiodetection <- dat(mydata, k = 0, type = "biodetection")
+  pdf(file.path(plot_path, str_glue("NOISeq_biodetection_{todate}_{basename(plot_path)}.pdf")))
+  seq(ncol(exp_data)) %>% map(~explo.plot(mybiodetection, samples = .x),plottype = "boxplot")
+  dev.off()
+  mycountsbio <- dat(mydata, factor = NULL, type = "countsbio")
+  pdf(file.path(plot_path, str_glue("NOISeq_countsbio_{todate}_{basename(plot_path)}.pdf")))
+  seq(ncol(exp_data)) %>% map(~explo.plot(mycountsbio, 
+    samples = .x ,plottype = "boxplot"))
+  dev.off()
+}
+
+list( "salmon" = dgl_salmon$counts, "fc" = dgl_fc$counts) %>% 
+  map2(.y = dat_path, ~function_Noiseq_plots(.x,.y))
+```
+
+## 8. Create the design matrix
+```{r design matrix}
+design <- model.matrix(~0 + targets_file$group)
+colnames(design) <- colnames(design) %>% 
+  str_remove("targets_file\\$group") 
+rownames(design) <- targets_file$name
+# we had 3 samples with different run
+design_2 <- model.matrix(~0 + targets_file$group + targets_file$batch)
+colnames(design_2) <- colnames(design_2) %>% 
+  str_remove("targets_file\\$group") %>% 
+  str_remove("targets_file\\$batch")
+rownames(design_2) <- targets_file$name
+```
+
+## 9. Perform various Filtering Methods: EdgeR, NOIseq
+```{r, Filtering}
+function_filtering <- function(dgl_data, data_path){
+  # filtering with NOISEq  -----
+  noifil <- list("cpm" = 1L, "Prop" = 3L) %>%
+    map(~NOISeq::filtered.data(dgl_data$counts,
+      factor = dgl_data$samples$group,
+      norm = FALSE,
+      method = .x, cv.cutoff = 100, cpm = 1)
+  )
+  
+  noifil %>% 
+    names %>% 
+    map( ~ dgl_data[rownames(dgl_data$counts) %in%
+      rownames(noifil[.x]),,keep.lib.sizes = FALSE] %>% 
+        write_rds(file.path(data_path, str_glue("dgl_{.x}_filt_{basename(data_path)}.rds")))
+      )
+  # filter with EdgeR ----
+  keep.exprs <- filterByExpr.DGEList(dgl_data, design = design)
+  keep.exprs_2 <- filterByExpr.DGEList(dgl_data, design = design_2)
+  dgl_filt <- dgl_data[keep.exprs,,keep.lib.sizes=FALSE] %>% 
+    write_rds(file.path(data_path, str_glue("dgl_edger_filt_nobatch_{basename(data_path)}.rds")))
+  dgl_filt_2 <- dgl_data[keep.exprs_2,,keep.lib.sizes=FALSE] %>% 
+    write_rds(file.path(data_path,str_glue("dgl_edger_filt_batch_{basename(data_path)}.rds")))
+  
+  # objects for the creation of filtering info table
+  features_NOIS <- map(noifil, ~ .x %>%
+      rownames() %>%
+      enframe(name = NULL)) 
+  features_edgeR <- map(list(dgl_filt, dgl_filt_2) , ~ .x %>%
+      rownames() %>%
+      enframe(name = NULL)) %>% 
+    set_names("no_batch", "batch")
+  
+  common_edgeR_nobatch <- map2(features_edgeR[1], features_NOIS, ~ .x %>%
+      inner_join(.y))
+  common_edgeR_batch <- map2(features_edgeR[2], features_NOIS,  ~ .x %>%
+      inner_join(.y))
+  
+  filter_info <- tibble(
+    "features" = c("Starting_features:", "edgeR_nobatch_filter:",
+      "edgeR_batch_filter:", 
+      "NOISeq_1cpm_filter:",
+      "common_with_edgeR_nobatch:", "common_with_edgeR_batch:",
+      "NOISeq_Proportion_filter:", 
+      "common_with_edgeR_nobatch:", "common_with_edgeR_batch:"
+      ),
+    "number_of_features" = c(nrow(dgl_data$counts), nrow(dgl_filt$counts),
+      nrow(dgl_filt_2$counts),
+      nrow(noifil[[1]]),
+      nrow(common_edgeR_nobatch[[1]]),nrow(common_edgeR_batch[[1]]),
+      nrow(noifil[[2]]),
+      nrow(common_edgeR_nobatch[[2]]),nrow(common_edgeR_batch[[2]])
+    )
+  ) %>% 
+    write_tsv(file.path(data_path, str_glue("filtering_info_{basename(data_path)}.txt")))
+  dgl_filt
+}
+
+filtered_dgls <- list("salmon" = dgl_salmon, "fc" = dgl_fc) %>% 
+  map2(.y = dat_path, ~function_filtering(.x,.y))
+```
+
+## 10. Histogram before and after filtering of data
+```{r Histogram before and after}
+function_hist <- function(dgl_data, dgl_fil_data, plot_path){
+  AveLogCpm_Raw_Data <- aveLogCPM(dgl_data)
+  AveLogCpm_Filtered_Data <-aveLogCPM(dgl_fil_data)
+  pdf(file.path(plot_path, str_glue("histogram_plot_{todate}_{basename(plot_path)}.pdf")))
+  hist(AveLogCpm_Raw_Data)
+  hist(AveLogCpm_Filtered_Data)
+dev.off()
+}
+
+list(list("salmon" = dgl_salmon, "fc" = dgl_fc), 
+  filtered_dgls, dat_path) %>% 
+   pmap(function_hist)
+```
+
+## 11. Normalization
+```{r Normalization}
+function_EDA_RLE <- function(data, name){
+  EDASeq::plotRLE(data,
+        col = as.character(dgl_fc$colours$group_col),
+        outline=FALSE, las=3,
+        ylab="Relative Log Expression", 
+        cex.axis=1, cex.lab=1, main = str_glue("{name}"))
+      legend("topright",
+       legend = levels(as_factor(dgl_fc$samples$group)),
+       fill = levels(as_factor(dgl_fc$colours$group_col)),
+       bty="n",
+       cex = 0.5, inset = c(.01,.01))
+}
+
+function_norm <- function(dgl_fil_data, data_path){
+  # edgeR ---- 
+  norm_method <- list("none", "TMM", "TMMwsp", "RLE") %>% 
+    set_names(.)
+  edger_norm <- map(norm_method, ~calcNormFactors(dgl_fil_data, method = .x))
+  # limma-voom  ----
+  pdf(file.path(data_path,str_glue("voom_plots_{basename(data_path)}.pdf")))
+  voom_norm <-  edger_norm[1:3] %>% 
+    map2(.y = c("quantile", rep("none",2)),
+      ~voom(.x, design = design,
+        plot = TRUE, normalize.method = .y)) %>% 
+    set_names("voom_Quantile","voom_TMM","voom_TMMwsp")
+  dev.off()
+  # limma-voom with quality weights ----
+  pdf(file.path(data_path,str_glue("voom_quality_weights_plots_{basename(data_path)}.pdf")))
+  voom_norm_QW <- edger_norm[1:3] %>% 
+    map2(.y = c("quantile", rep("none",2)),
+      ~voomWithQualityWeights(.x, design = design,
+        plot = TRUE, normalize.method = .y)) %>% 
+    set_names("voomQW_Quantile","voomQW_TMM","voomQW_TMMwsp")
+  dev.off()
+  # list of normalized data ----
+  norm_list <- c(edger_norm %>% map(~cpm(.x, normalized.lib.sizes = TRUE)),
+     list(
+    "voom_Quantile" = 2^voom_norm[[1]]$E,
+    "voom_TMM" = 2^voom_norm[[2]]$E,
+    "voom_TMMwsp" = 2^voom_norm[[3]]$E,
+    "voomQW_Quantile" = 2^voom_norm_QW[[1]]$E,
+    "voomQW_TMM" = 2^voom_norm_QW[[2]]$E,
+    "voomQW_TMMwsp" = 2^voom_norm_QW[[3]]$E))
+  pdf(file.path(data_path, str_glue("RLE_plots_{basename(data_path)}.pdf")))
+  norm_list %>%
+    imap(~function_EDA_RLE(.x,.y))
+  dev.off()
+  norm_list[2:4] %>% imap(~.x %>% 
+      as_tibble(rownames = "GeneIDs") %>% 
+        write_tsv(file = file.path(data_path, str_glue("norm_cpm_{.y}_{basename(data_path)}.txt"))))
+  c(edger_norm, voom_norm, voom_norm_QW)
+}
+
+norm_dgls <- filtered_dgls %>%
+  map2(.y = dat_path, ~function_norm(.x, .y))
+
+# save the list with all normalized values (edgeR and limma-voom)-----
+  do_not_print <- map2( .x = norm_dgls, .y = dat_path, 
+    ~write_rds(.x, file = file.path(.y, str_glue("list_norm_dgls_{basename(.y)}.rds"))))
+```
+
+## 12. Make h-clustering
+```{r Hierarchical clustering}
+function_clust <- function(dgl_norm_data, plot_path){
+  hc_methods <- c("ward.D2",
+                "complete",
+                "average")
+  
+  list_distc <- c(dgl_norm_data[1:4] %>%
+      map(~cpm(.x, normalized.lib.sizes = TRUE, log=TRUE, prior.count=5)),
+      list("voom_Quantile" = dgl_norm_data[[5]]$E,
+      "voom_TMM"= dgl_norm_data[[6]]$E,
+      "voom_TMMwsp" = dgl_norm_data[[7]]$E,
+      "voomQW_Quantile" = dgl_norm_data[[8]]$E,
+      "voomQW_TMM"= dgl_norm_data[[9]]$E,
+      "voomQW_TMMwsp" = dgl_norm_data[[10]]$E)) %>% map(~dist(t(.x)))
+  #pheatmap start
+  list_distc_mat <- list_distc  %>% map(~as.matrix(.x))
+  colours_pheat <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
+  pdf(file.path(plot_path, str_glue("distance_matrix_hclust_{basename(plot_path)}.pdf")))
+  list_distc_mat %>% imap(~pheatmap(.x,
+           clustering_distance_rows = "euclidean",
+           clustering_distance_cols = "euclidean",
+           col = colours_pheat,
+           main = str_glue({.y})))
+  dev.off()
+  #pheatmap end
+  #list_distc <- log_cpm %>% map(~dist(t(.x)))
+  list_hc <- sapply(hc_methods, function(x) map(list_distc, ~hclust(.x,method = x)))
+  names(list_hc) <- rep(rownames(list_hc),times = ncol(list_hc))
+  
+  pdf(file.path(plot_path, str_glue("hierarchic_clust_{basename(plot_path)}.pdf")))
+  for (i in seq_along(list_hc)) {
+       rafalib::myplclust(list_hc[[i]],
+       lab.col = as.character(dgl_fc$colours$group_col),  
+       xlab = NULL,
+       main = str_glue("{matrix(list_hc[[i]])[[7]]} - {matrix(list_hc[[i]])[[5]]} - {names(list_hc[i])}"))
+       legend("topright",
+       legend = levels(dgl_fc$samples$group),
+       fill = levels(as_factor(dgl_fc$colours$group_col)),  
+       bty="n",
+       cex = 0.9)
+       }
+  dev.off()
+}
+
+map2(norm_dgls, dat_path, ~function_clust(.x,.y))
+```
+
+## 13. Make MDS plot
+```{r MDS plot}
+function_MDS <- function(dgl_norm_data, plot_path){
+  par(mar=c(6,5,2,1)+ 0.1)
+  pdf(file.path(plot_path, str_glue("MDS_plot_{basename(plot_path)}.pdf")))
+  plotMDS(dgl_norm_data$TMM, 
+          labels = dgl_fc$samples$name,
+          pch = 10,
+          cex = 0.7,
+    col = as.character(dgl_fc$colours$group_col), dim.plot = c(1,2))
+  legend("topright",
+       legend = levels(as_factor(dgl_fc$colours$group)),
+       fill = levels(as_factor(dgl_fc$colours$group_col)),
+       bty="n",
+       cex = 1.5, inset = c(.01,.09))
+  map2(c(3,1,2,2),c(4,3,3,4),
+  ~plotMDS(dgl_norm_data$TMM, labels = dgl_fc$samples$name, pch = 10,
+    cex = 0.7,
+    col = as.character(dgl_fc$colours$group_col), 
+    dim.plot = c(.x,.y),
+    main = str_glue("MDS plot {names(dgl_norm_data[2])}"))
+  )
+  dev.off()
+}
+map2(norm_dgls, dat_path, ~function_MDS(.x,.y))
+```
+
+## 14. Make PCA plot
+```{r PCA plot}
+## modified from DESeq2::plotPCA
+## https://github.com/mikelove/DESeq2/blob/master/R/plots.R
+function_PCA <- function(dgl_norm_data, plot_path, norm_method = "TMM", ntop = 500){
+  suppressPackageStartupMessages(library(DESeq2))
+  # calculate the variance for each gene
+  lcpm_transformed <- cpm(dgl_norm_data[[norm_method]],
+                          normalized.lib.sizes = TRUE,
+                          log = TRUE, 
+                          prior.count = 4)
+  
+  rv <- rowVars(lcpm_transformed)
+  
+  # select the ntop genes by variance
+  select <- order(rv, decreasing=TRUE)[seq_len(min(ntop, length(rv)))]
+  # perform a PCA on the data in dgl_norm_data[[norm_method]]$counts for the selected genes
+  pca <- prcomp(t(lcpm_transformed[select,]))
+  
+  # the contribution to the total variance for each component
+  percentVar <- pca$sdev^2 / sum( pca$sdev^2 )
+  
+  # create a new grouping factor
+  group <- dgl_norm_data[[norm_method]]$samples$group
+  
+  # assembly the data for the plot
+  d <- data.frame(PC1=pca$x[,1], PC2=pca$x[,2], group=group,
+                  name=colnames(dgl_norm_data[[norm_method]]$counts))
+  
+  # create batch if it exists
+  if(dgl_norm_data[[norm_method]]$samples$batch[1]){
+    d$batch <- dgl_norm_data[[norm_method]]$samples$batch %>% as_factor
+    p <-  ggplot(data=d, 
+                 aes_string(x="PC1", 
+                            y="PC2", 
+                            color="batch", 
+                            shape="group"))
+  }else{
+  print("There is no batch, we will use only the groups")
+  p <- ggplot(data=d, aes_string(x="PC1", y="PC2", shape="group"))
+  }
+  
+  p <- p +
+    geom_point(size=3) + 
+    xlab(paste0("PC1: ",round(percentVar[1] * 100),"% variance")) +
+    ylab(paste0("PC2: ",round(percentVar[2] * 100),"% variance")) +
+    coord_fixed()+
+    theme_minimal()+
+    labs(title=str_glue("PCA plot {norm_method}"))+
+    theme(plot.title = element_text(hjust = 0.5),
+          axis.text.x = element_text( face = "bold"),
+          axis.text.y = element_text( face = "bold"),
+          aspect.ratio = 1)
+  
+  # pdf
+  par(mar=c(6,5,2,1)+ 0.1)
+  pdf(file.path(plot_path, str_glue("PCA_plot_lcpm_{norm_method}_{basename(plot_path)}.pdf")))
+  print(p)
+  dev.off()
+}
+
+map2(norm_dgls, dat_path, ~function_PCA(.x,.y))
+```
+
+## 15. Compare groups between FeatureCounts and salmon results
+```{r cpm venn comparison}
+function_comp_groups <- function(dgl_norm_data, tool){
+ grouped_cpm  <- dgl_norm_data$TMM %>% 
+    cpmByGroup.DGEList
+   grouped_cpm %>% 
+   as_tibble(rownames = "sncRNA")
+}
+
+comp_FC_sal <- map2(norm_dgls, list("_salmon", "_fc"), ~function_comp_groups(.x,.y))
+annot_tbl <- file.path("../wind/human_data","sncRNA_piRNBnk_RNACent_GRCh38_v34.gtf.gz") %>% 
+  read_gff2()
+complete_biotypes_seqs <- annot_tbl %>% 
+  as_tibble() %>% 
+  distinct(gene_id, .keep_all = TRUE) %>% 
+  select(!c(seqnames:strand,type:phase)) %>% 
+  dplyr::rename("sncRNA" = gene_id)
+salmon_FC_cpm_union_grouped <- comp_FC_sal %>% 
+  bind_rows(.id = "method") %>% 
+  pivot_longer(cols = !c(method,sncRNA)) %>% 
+  pivot_wider(names_from = c(name, method),
+              values_from = value) %>% 
+  left_join(complete_biotypes_seqs) %>%
+  select(sncRNA, gene_type, everything()) %>% 
+  write_tsv(file.path(dirname(dat_path[1]), "salmon_FC_cpm_union_grouped.txt"))
+
+# pick the top 100 expressed piRNAs between FC salmon and all groups -----
+all_exprs_cpm_TMM <- dat_path %>% 
+  map(~list.files(path = .x, 
+                  recursive = TRUE ,
+                  pattern = "norm_cpm_TMM_",
+                  full.names = T)) %>% 
+  vroom::vroom(id = "method") %>% 
+  mutate(method = method %>% basename() %>% str_remove("norm_cpm_TMM_") %>% str_remove(".txt"))
+
+salmon_FC_cpm_union_grouped_top <- salmon_FC_cpm_union_grouped %>% 
+  filter(str_detect(gene_type, "piRNA")) %>% 
+  arrange(across(.fns = dplyr::desc,
+                 .cols = ends_with(c("salmon","fc")))) %>% 
+  group_by(gene_type) %>% 
+  slice_head(n = 100) 
+all_exprs_cpm_TMM %>%
+  filter(GeneIDs %in% salmon_FC_cpm_union_grouped_top$sncRNA) %>% 
+  mutate(method = if_else(method == "featureCounts", 
+                          true = "fc", 
+                          false = "salmon")) %>%
+  pivot_longer(cols = !c(method,GeneIDs)) %>% 
+    unite(col = "sample",c(name, method)) %>%
+  pivot_wider(names_from = "sample", 
+              values_from = "value") %>% 
+  write_tsv(file.path(dirname(dat_path[1]),"salmon_FC_cpm_union_top100.txt"))
+```
+
+## 16. Histograms of length per gene_type (sncRNA category)
+### i. Make a table with the expressed gene_types per method
+```{r stats_gene_types}
+# import gtf and keep only the length of sncRNA
+annot_tbl <- file.path("../wind/human_data","sncRNA_piRNBnk_RNACent_GRCh38_v34.gtf.gz") %>% 
+  read_gff2() %>% 
+  as_tibble() %>%
+  distinct(gene_id, .keep_all = T) %>% 
+  select(gene_id, "length_w" = width, gene_type, seq_RNA)
+
+# a function to prepare info for the table
+function_prep_hist <- function(dgl_norm_data, annot_gtf){
+  prep_hist <- annot_gtf %>% 
+    filter(gene_id %in% rownames(dgl_norm_data$TMM))
+}
+
+# apply the function to the normalized dgl objects
+smallRNA_seqs <- map2(norm_dgls, list(annot_tbl, annot_tbl), ~function_prep_hist(.x,.y))
+# make the dataframes with info regarding expressed gene_types
+fc_n <- smallRNA_seqs[["fc"]] %>% 
+  dplyr::count(gene_type, sort = T) %>% 
+  dplyr::rename("fc_n" = n) 
+salmon_n <- smallRNA_seqs[["salmon"]] %>% 
+  dplyr::count(gene_type, sort = T) %>% 
+  dplyr::rename("salmon_n" = n)
+common_n <- smallRNA_seqs[["fc"]] %>% 
+    inner_join(smallRNA_seqs[["salmon"]] ) %>% 
+    dplyr::count(gene_type, sort = T) %>% 
+    dplyr::rename("common_n" = n)
+  
+unique_FC_n <- smallRNA_seqs[["fc"]] %>% 
+    anti_join(smallRNA_seqs[["salmon"]] ) %>% 
+    dplyr::count(gene_type, sort = T) %>% 
+    dplyr::rename("unique_FC_n" = n)
+unique_salmon_n <- smallRNA_seqs[["salmon"]]  %>% 
+    anti_join(smallRNA_seqs[["fc"]]) %>% 
+    dplyr::count(gene_type, sort = T) %>% 
+    dplyr::rename("unique_salmon_n" = n)
+stats_gene_types_ids <- fc_n %>% 
+  full_join(salmon_n) %>% 
+  full_join(common_n) %>%
+  full_join(unique_FC_n) %>%
+  full_join(unique_salmon_n) %>%
+  write_tsv(file.path(dirname(dat_path[1]), "stats_gene_types_ids.txt"))
+rm(fc_n, salmon_n, common_n, unique_FC_n, unique_salmon_n)
+```
+
+### ii. Make histograms of length
+```{r histogram of seq length}
+# make a hist 
+hist_tbl <- comp_FC_sal %>% 
+  bind_rows(.id = "method") %>% 
+  pivot_longer(cols = !c(method,sncRNA)) %>% 
+  left_join(annot_tbl, by = c("sncRNA" = "gene_id"))
+
+# filter cpm value to keep only the expressed molecules
+hist_tbl <- hist_tbl %>%
+  filter(value > 0)
+pdf(file.path(dirname(dat_path[1]),"length_histogram.pdf"))
+hist_tbl$gene_type %>% 
+  as_factor() %>% 
+  levels() %>% 
+  map(~filter(hist_tbl, gene_type == .x) %>%
+        filter(!is.na(method),!is.na(name)) %>% 
+        ggplot() +
+        geom_bar(mapping = aes(x = factor(length_w), fill = method), position = "dodge") +
+        facet_wrap(~ name, nrow = 1) +
+        scale_x_discrete(name = 'length')+ 
+        scale_y_continuous(labels = scales::comma, guide = guide_axis(angle = 45))+
+        ggtitle(.x) +
+        coord_flip() +
+        theme_bw()
+      )
+dev.off()
+```
+
+## 17. Sequence logos
+```{r sequences logos}
+# sequences logos -----
+library(ggseqlogo)
+sample_groups <- hist_tbl %>% dplyr::count(name) %>% .$name
+pdf(file.path(dirname(dat_path[1]), "piRNA_logos_FC_salmon.pdf"))
+#salmon
+map(.x = sample_groups, 
+  .f = ~hist_tbl %>% 
+    filter(gene_type == "piRNA", method == "salmon", name == .x) %>% 
+    mutate(seq_RNA = seq_RNA %>% str_sub(1,15)) %>% 
+    .$seq_RNA %>% 
+    ggseqlogo(method = 'prob', font="roboto_regular") +
+    ggtitle(str_glue("Salmon_{.x}")) +
+    annotate('rect', xmin = 9.5, xmax = 10.5, 
+           ymin = -0.05, ymax = 1.05,
+           alpha = .1, col='black', fill='yellow') +
+    annotate('rect', xmin = 0.5, xmax = 1.5, 
+           ymin = -0.05, ymax = 1.05,
+           alpha = .1, col='black', fill='yellow')
+  )  
+#featureCounts
+map(.x = sample_groups, 
+  .f = ~hist_tbl %>%
+    filter(gene_type == "piRNA", method == "fc", name == .x) %>% 
+    mutate(seq_RNA = seq_RNA %>% str_sub(1,15)) %>% 
+    .$seq_RNA %>% 
+    ggseqlogo(method = 'prob', font="roboto_regular") +
+    ggtitle(str_glue("FeatureCounts_{.x}")) +
+    annotate('rect', xmin = 9.5, xmax = 10.5, 
+           ymin = -0.05, ymax = 1.05,
+           alpha = .1, col='black', fill='yellow') +
+    annotate('rect', xmin = 0.5, xmax = 1.5, 
+           ymin = -0.05, ymax = 1.05,
+           alpha = .1, col='black', fill='yellow')
+  )
+dev.off()
+```
+
+# Differential Expression Analysis
+
+## Load libraries
+```{r load libraries, }
+suppressPackageStartupMessages({
+  library('tidyverse') 
+  library('edgeR')
+})
+```
+
+## Add date of the analysis
+
+We use it as an identifier for the folder and generally the analysis
+```{r todate_of_analysis}
+todate <- format(Sys.time(), "%d_%b_%Y")
+```
+
+## Make the directory for the results of the DE analysis
+```{r make dirs}
+my_basename <- file.path(".")  ## INPUT name of the main folder 
+my_exp <- "piRNA_CC_tissues" ## INPUT name of the analysis
+genome_input <- "GRCh38" ## INPUT genome version here
+my_tools <- c("salmon", "featureCounts")
+dat_path <- file.path(my_basename, str_glue("DEA_{my_exp}_{genome_input}_{todate}"),
+                      my_tools) %>% set_names(my_tools)
+dat_path %>% map(~dir.create(., recursive = TRUE))
+```
+
+## 1. Import the normalized files
+```{r import salmon and fc}
+EDA_folder <- "EDA_piRNA_CC_tissues_GRCh38_24_Jan_2022"
+
+list_norm_dgls <- list.files(path = EDA_folder, pattern = "list_norm_dgls.+rds",
+  recursive = TRUE, full.names = TRUE)
+
+# load salmon normalized files 
+salmon_norm <- list_norm_dgls %>% 
+  unlist %>% 
+  str_detect("salmon") %>% 
+  list_norm_dgls[.] %>% 
+  read_rds()
+
+# load featurecounts normalized files 
+fc_norm <- list_norm_dgls %>% 
+  unlist %>% 
+  str_detect("featureCounts") %>% 
+  list_norm_dgls[.] %>% 
+  read_rds()
+```
+
+## 2. Extract normalized objects 
+
+We will work with TMM normalization and TMM voom with quality weights
+```{r extract norm dgl}
+salmon_edgR_TMM <- salmon_norm[["TMM"]]
+salmon_vm_QW_TMM <- salmon_norm[["voomQW_TMM"]]
+salmon_vm_TMM <- salmon_norm[["voom_TMM"]]
+salmon_vm_Q <- salmon_norm[["voom_Quantile"]]
+
+fc_edgR_TMM <- fc_norm[["TMM"]]
+fc_vm_QW_TMM <- fc_norm[["voomQW_TMM"]]
+fc_vm_TMM <- fc_norm[["voom_TMM"]]
+fc_vm_TMM <- fc_norm[["voom_TMM"]]
+fc_vm_Q <- fc_norm[["voom_Quantile"]]
+```
+
+## 3. Create the design matrix
+
+If we load the voom object we can extract the design matrix otherwise we can create it again from the dgl object
+```{r design}
+#1 voom object
+design <- salmon_vm_QW_TMM$design
+#or dgl object
+#design <- salmon_vm_QW_TMM$design
+```
+
+## 4. edgeR
+Perform the analysis with edgeR TMM normalization
+for both salmon and featurecounts
+```{r edgeR_DE, eval = FALSE}
+# makeContrasts ----
+con_mat <- makeContrasts(
+  Tumour_v_Ctrl = Tumour - Control,
+  levels = design)
+
+## salmon ----
+salmon_edgR_TMM <- estimateDisp(salmon_edgR_TMM, design = design, robust=TRUE)
+salmon_edgR_TMM <- glmQLFit(salmon_edgR_TMM, design, robust = TRUE)
+
+DE_salmon_edgR <- con_mat %>% 
+  colnames() %>% 
+  set_names() %>% 
+ map(~glmQLFTest(salmon_edgR_TMM, contrast = con_mat[,.x]) %>% 
+  topTags(n = nrow(.), adjust.method = "BH", sort.by = "PValue", p.value = 1) %>% 
+   .$table %>% 
+  as_tibble(rownames = "smallRNA") %>% 
+  write_tsv(str_glue("{dat_path[['salmon']]}/DE_salmon_edgR_TMM_{.x}.txt"))  
+ ) %>% 
+  bind_rows(.id = "contrast")
+ 
+hist(DE_salmon_edgR$PValue, breaks = 0:20/20,
+     col = "grey50", border = "white")
+
+salmon_edgeR_TMM_p <- DE_salmon_edgR %>% 
+  mutate(salmon_edgeR = if_else(
+    FDR >= 0.05, 0, if_else(
+      logFC > 0, 1, -1
+    )
+  )) %>% 
+  select(smallRNA , salmon_edgeR )
+
+## featureCounts ----
+fc_edgR_TMM <- estimateDisp(fc_edgR_TMM, design = design, robust=TRUE)
+fc_edgR_TMM <- glmQLFit(fc_edgR_TMM, design, robust = TRUE)
+
+DE_FC_edgR <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~glmQLFTest(fc_edgR_TMM, contrast = con_mat[,.x]) %>% 
+  topTags(n = nrow(.), adjust.method = "BH", sort.by = "PValue", p.value = 1) %>% 
+   .$table %>% 
+  as_tibble(rownames = "smallRNA") %>% 
+  write_tsv(str_glue("{dat_path[['featureCounts']]}/DE_fc_edgR_TMM_{.x}.txt"))  
+ ) %>% 
+  bind_rows(.id = "contrast")
+ 
+
+fc_edgR_TMM <- glmQLFTest(fc_edgR_TMM, contrast = con_mat[,"Tumour_v_Ctrl"])
+is.de <- decideTests(fc_edgR_TMM, p.value = 0.1)
+summary(is.de)
+topTags(fc_edgR_TMM,n=10)$table 
+plotMD(fc_edgR_TMM,
+       status = is.de,
+       values = c(1,-1),
+       col = c("red","blue"),
+       legend="topright")
+
+hist(DE_FC_edgR$PValue, breaks = 0:20/20,
+     col = "grey50", border = "white")
+
+fc_edgeR_TMM_p <- DE_FC_edgR %>% 
+  mutate(fc_edgeR = if_else(
+    FDR >= 0.05, 0, if_else(
+      logFC > 0, 1, -1
+    )
+  )) %>% 
+  select(smallRNA , fc_edgeR )
+
+# venn diagram for salmon/fc edgeR -----
+results <-  salmon_edgeR_TMM_p %>% 
+  inner_join(fc_edgeR_TMM_p) %>%  select(-smallRNA)
+
+pdf(str_glue("{dat_path}/venn_diagram_DE_salmon_fC_edgeR.pdf"))
+vennDiagram(results, 
+    include=c("up", "down"),
+    counts.col=c("red", "blue"),
+    circle.col = c("red", "blue", "green3"))
+dev.off()
+
+# collapse the results and make long table
+nc_RNA_categories <- DE_FC_edgR %>% 
+  select(smallRNA, gene_type)
+
+edgeR_all_comp_long_format <- map(list("FeatureCounts" = DE_FC_edgR, 
+                                       "salmon" = DE_salmon_edgR), ~.x %>% 
+                                    select_at(vars(starts_with(c("contrast", 
+                                                                 "smallRNA", 
+                                                                 "logFC", 
+                                                                 "PValue", 
+                                                                 "FDR"))))) %>% 
+  bind_rows(.id = "workflow") %>%  
+  inner_join(nc_RNA_categories) %>% 
+  write_tsv(file.path(dirname(dat_path[1]),
+                      str_c("all_comparisons_long_edgeR_TMM_salmon_fc_LFCs_", 
+                            todate,".txt")))
+
+```
+
+## 5. Limma 
+```{r limma_DE}
+nc_RNA_categories <- file.path("../wind/human_data","sncRNA_piRNBnk_RNACent_GRCh38_v34.gtf.gz") %>% 
+  plyranges::read_gff2() %>% 
+  as_tibble() %>% 
+  select(gene_id, gene_type) %>% 
+  distinct(gene_id, .keep_all = TRUE) 
+
+# design ----
+### same as before
+## salmon ----
+salmon_vm_TMM <- lmFit(salmon_vm_TMM, design = design)
+salmon_vm_TMM <- contrasts.fit(salmon_vm_TMM, con_mat)
+salmon_vm_TMM <- eBayes(salmon_vm_TMM, robust = TRUE)
+
+salmon_DES <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~salmon_vm_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA") %>% 
+  rename_at(vars(logFC:B), list(~str_c(.,"_",!!quo(.x)))) %>% 
+  write_tsv(file.path(dat_path[['salmon']], str_c("DE_salmon_vm_TMM_",.x, ".txt")))  
+ )
+
+salmon_DES_long <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~salmon_vm_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA")) %>%
+  bind_rows(.id = "contrast") %>% 
+  select(-c( CI.L :t, B)) %>% 
+  mutate(quantification = "salmon", .after = smallRNA) %>% 
+  left_join(nc_RNA_categories, by = c("smallRNA" = "gene_id"))
+
+pdf(file.path(dat_path[['salmon']],str_c("hist_limma_p_value_", names(salmon_DES[1]),".pdf") ))
+hist(salmon_DES[[1]] %>% select(starts_with("P.Value")) %>% deframe(), 
+     breaks = 0:20/20,
+     col = "grey50", border = "white")
+dev.off()
+
+salmon_vm_TMM_p <- salmon_DES[[1]] %>% 
+  mutate(salmon_voomQ = 
+           case_when(
+             select(., starts_with("adj.P.Val")) >= 0.05 ~ 0L,
+             select(., starts_with("logFC")) > 0 ~ 1L,
+             select(., starts_with("logFC")) < 0 ~ -1L
+           )) %>% 
+  select(smallRNA , salmon_voomQ) 
+
+## featureCounts ----
+#fc_vm_TMM <- fc_vm_QW_TMM
+
+## 1-------
+fc_vm_TMM <- lmFit(fc_vm_TMM, design = design)
+fc_vm_TMM <- contrasts.fit(fc_vm_TMM, con_mat)
+fc_vm_TMM <- eBayes(fc_vm_TMM, robust = TRUE)
+
+fc_DES <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~fc_vm_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA") %>% 
+  rename_at(vars(logFC:B), list(~str_c(.,"_",!!quo(.x)))) %>% 
+  write_tsv(file.path(dat_path[['featureCounts']], str_c("DE_fc_vm_TMM_",.x,".txt")))  
+)
+
+fc_DES_long <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~fc_vm_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA")) %>%
+  bind_rows(.id = "contrast") %>% 
+  select(-c(Chr :seq_RNA, CI.L :t, B)) %>% 
+  mutate(quantification = "featureCounts", .after = smallRNA) %>% 
+  left_join(nc_RNA_categories, by = c("smallRNA" = "gene_id"))
+  
+pdf(file.path(dat_path[['featureCounts']],str_c("hist_limma_p_value_", names(fc_DES[1]),".pdf") ))
+hist(fc_DES[[1]] %>% select(starts_with("P.Value")) %>% deframe(), 
+     breaks = 0:20/20,
+     col = "grey50", border = "white")
+dev.off()
+
+fc_vm_TMM_p <- fc_DES[[1]] %>% 
+  mutate(fc_voomQ = 
+           case_when(
+             select(., starts_with("adj.P.Val")) >= 0.05 ~ 0L,
+             select(., starts_with("logFC")) > 0 ~ 1L,
+             select(., starts_with("logFC")) < 0 ~ -1L
+           ))%>% 
+  select(smallRNA , fc_voomQ )
+
+# venn diagram for salmon/fc limma -----
+results <-  salmon_vm_TMM_p %>% 
+  inner_join(fc_vm_TMM_p) %>%  select(-smallRNA)
+
+pdf(file.path(dirname(dat_path[1]), str_c("venn_diagram_DE_salmon_fC_limma_", colnames(con_mat)[1],".pdf")))
+vennDiagram(results, 
+    include=c("up", "down"),
+    counts.col=c("red", "blue"),
+    circle.col = c("red", "blue", "green3"))
+dev.off()
+
+# join both results ----
+identical(fc_DES %>% names(), salmon_DES %>% names())
+
+all_comp <- map2(fc_DES, salmon_DES, ~.x %>% 
+       select_at(vars(starts_with(c("smallRNA","logFC",
+                                    "P.Value","adj.P.Val")))) %>% 
+       rename_at(vars(!matches("smallRNA")), list(~str_c(.,"_FC"))) %>% 
+       full_join(.y%>% 
+       select_at(vars(starts_with(c("smallRNA","logFC",
+                                    "P.Value","adj.P.Val")))) %>% 
+       rename_at(vars(!matches("smallRNA")), list(~str_c(.,"_salmon"))))
+     ) %>% 
+  purrr::reduce(full_join) %>% 
+  inner_join(nc_RNA_categories, by = c("smallRNA" = "gene_id")) %>% 
+  write_tsv(file.path(dirname(dat_path[1]),str_c("all_comparisons_voom_TMM_salmon_fc_LFCs_", todate,".txt")))
+
+## long formats
+all_comp_long_format <- bind_rows(salmon_DES_long, fc_DES_long )  %>% 
+  write_tsv(file.path(dirname(dat_path[1]),str_c("all_comparisons_long_voom_TMM_salmon_fc_LFCs_", todate,".txt")))
+```
+
+## 6. check results of DEA
+```{r}
+all_comp_long_format %>% 
+  filter(gene_type == "piRNA", adj.P.Val < 0.05) %>% 
+  select(smallRNA, adj.P.Val, quantification, logFC) %>% 
+  pivot_wider(names_from = quantification, values_from = c(logFC, adj.P.Val)) %>% 
+  filter(if_all(c(logFC_salmon, logFC_featureCounts), ~ .x > 0) | if_all(c(logFC_salmon, logFC_featureCounts), ~ .x < -0.1))
+```
+
+
