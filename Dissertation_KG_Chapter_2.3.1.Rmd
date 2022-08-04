@@ -24,7 +24,7 @@ This project contains the scripting part of the Doctoral Dissertation of **Konst
 
 # CHAPTER 2: Data Analysis Workflow for small-RNAseq focused on piRNAs  
   
-## 2.3 Analysis of samples from patients with CRC and comparison with previous analyses.
+## 2.3.1 Analysis of samples from patients with CRC and comparison with previous analyses.
 
 Import Libraries
 ```{r}

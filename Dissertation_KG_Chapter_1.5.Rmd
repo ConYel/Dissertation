@@ -105,22 +105,23 @@ wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])
 
 PhD_theme <-
   list(
-    #scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
     scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -143,7 +144,7 @@ plot_enri_un <- enriched_IPP_union %>%
     ggtitle("Amount of sncRNAs found enriched in RIP-seq\n for COLO205 cell-line") +
     PhD_theme
 
-tiff(filename = file.path("FIG_20_IPP_1_2_COLO205.tiff"),
+tiff(filename = file.path("FIG_21_IPP_1_2_COLO205.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 plot_enri_un
 dev.off()
@@ -184,7 +185,13 @@ ha_1 <- HeatmapAnnotation(Samples = colnames(sc_mat),
             col = list(Samples =
                            rep(wesanderson::wes_palettes$Cavalcanti1[2:4],
                                each = 3) %>% 
-                           set_names(colnames(sc_mat))))
+                           set_names(colnames(sc_mat))),
+            annotation_legend_param = list(
+                
+                              Samples = list(
+                                  title_gp = gpar( fontsize = 20, fontface = "bold"), 
+                                 labels_gp = gpar(fontsize = 20)))
+                )
 
 ht_1 <- Heatmap(matrix = sc_mat, #data
         top_annotation = ha_1, #annot
@@ -209,7 +216,7 @@ ht_1 <- Heatmap(matrix = sc_mat, #data
         column_title = str_glue("Heatmap of {nrow(sc_mat)} common piRNAs\nfound enriched between Ab1 and Ab2"),
 )
 
-tiff(filename = file.path("FIG_21_piRNA_common_AB1_AB2_Colo205.tiff"),
+tiff(filename = file.path("FIG_22_piRNA_common_AB1_AB2_Colo205.tiff"),
      compression = "none", height = 10, width = 14,  units = 'in', res = 600)
 ht_1
 dev.off()
@@ -220,26 +227,25 @@ dev.off()
 PhD theme for plots
 ```{r}
 wes_cols <- c(wesanderson::wes_palettes$BottleRocket2[2:5])
-
 PhD_theme <-
   list(
-    #scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
     scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        plot.title = element_text(hjust = 0.5),
-        
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -270,10 +276,10 @@ venn_list <- list(`piRNAs Methylated in Cytosol` = Treat_cyt$sncRNA,
 venn_piRNA <- ggvenn(venn_list, show_percentage = FALSE) +  
     ggtitle("Common piRNAs between Treated Nucleus/Cytosolic and Rip-seq samples")+
     PhD_theme +
-    theme_void()+
+    theme_void() +
     coord_fixed()
 
-tiff(filename = file.path("FIG_22_piRNA_common_AB1_AB2_Meth_Cyt_Nuc.tiff"),
+tiff(filename = file.path("FIG_23_piRNA_common_AB1_AB2_Meth_Cyt_Nuc.tiff"),
      compression = "none", height = 10, width = 14,  units = 'in', res = 600)
 venn_piRNA
 dev.off() 

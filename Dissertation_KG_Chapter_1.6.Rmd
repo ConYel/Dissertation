@@ -110,23 +110,23 @@ wes_cols <- c(wesanderson::wes_palettes$Zissou1[5:1])
 
 PhD_theme <-
   list(
-    #scale_fill_manual(values = wes_cols),
-    #scale_color_manual(values = wes_cols),
     scale_fill_brewer(palette = "Set1"),
     theme_bw() +
       theme(
         panel.border = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size = 20),
+        strip.text = element_text(size = 20, colour = "black"),
         axis.line = element_line(),
         panel.grid.major = element_line(size = 0.2),
         panel.grid.minor = element_line(size = 0.1),
         text = element_text(size = 20),
-        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10)),
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        axis.text.y = element_text(size = 20),
-        plot.title = element_text(hjust = 0.5)
+        axis.title.x = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.title.y = element_text(margin = margin(t = 10, r = 10, b = 10, l = 10),
+                                    colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 20),
+        axis.text.y = element_text(size = 20, colour = "black"),
+        plot.title = element_text(hjust = 0.5, colour = "black")
       )
   )
 ```
@@ -152,7 +152,7 @@ goenr_plot <- ggplot(goenr_RF, showCategory = 13,
   ylab(NULL) + 
   ggtitle("Enriched Gene Ontology Molecular Functions")
 
-tiff(filename = file.path("FIG_23_Enriched_GO_Mol_Fun_COLO205_106_genes.tiff"),
+tiff(filename = file.path("FIG_24_Enriched_GO_Mol_Fun_COLO205_106_genes.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 goenr_plot
 dev.off()
@@ -175,7 +175,7 @@ reactome_enr <- ggplot(reactome_path_RF, showCategory = 20,
   ylab(NULL) + 
   ggtitle("Enriched Reactome Pathways")
 
-tiff(filename = file.path("FIG_24_Enriched_Reactome_COLO205_106_genes.tiff"),
+tiff(filename = file.path("FIG_25_Enriched_Reactome_COLO205_106_genes.tiff"),
      compression = "none", height = 12, width = 16,  units = 'in', res = 600)
 reactome_enr
 dev.off()
