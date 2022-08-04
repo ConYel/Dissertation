@@ -1,0 +1,203 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 2: Data Analysis Workflow for small-RNAseq focused on piRNAs  
+
+## 2.2.3 c) GSE160432 dataset comparison between SPAR and WIND results
+
+Here we compare the  results we got from SPAR and WIND analysis of the public dataset [GSE160432](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE160432).
+
+### import libraries
+```{r}
+library('dplyr') 
+library('tibble')          
+library('stringr')
+library('tidyr')
+library('vroom')
+suppressPackageStartupMessages({
+  
+  library('plyranges')
+  library('tximport')
+  library('edgeR')
+  library('NOISeq')
+  library('rafalib')
+  library('pheatmap')
+  library('RColorBrewer')
+})
+```
+
+### import the WIND results and check lFC of two miRNAs
+```{r}
+DE_WIND <- vroom("Chapter_2_2/WIND/DEA_piRNA_GSE160432_CRC_GRCh38_20_Jul_2022/all_comparisons_long_voom_TMMQW_salmon_fc_LFCs_20_Jul_2022.txt")
+
+# check the two specific miRNAs that the article is focusing for WIND results
+DE_WIND %>%
+  filter(str_detect(external_id, "-1246|-215-5p")) %>%
+  pivot_wider(names_from = quantification, values_from = c(logFC,P.Value, adj.P.Val)) %>%
+  select(-c(smallRNA, CI.L:B, Chr:seq_RNA))
+```
+
+####> A tibble: 6 x 10
+  contrast      gene_type external_id    sncRNA_name    logFC_salmon logFC_featureCounts P.Value_salmon P.Value_featureCounts adj.P.Val_salmon adj.P.Val_featureCounts
+  <chr>         <chr>     <chr>          <chr>                 <dbl>               <dbl>          <dbl>                 <dbl>            <dbl>                   <dbl>
+1 Tumour_v_Ctrl miRNA     hsa-miR-1246   hsa-mir-1246         3.78                 NA          8.25e-10             NA            0.0000000379               NA       
+2 Tumour_v_poly miRNA     hsa-miR-1246   hsa-mir-1246         3.69                 NA          3.89e- 7             NA            0.0000159                  NA       
+3 poly_v_Ctrl   miRNA     hsa-miR-1246   hsa-mir-1246         0.0842               NA          9.09e- 1             NA            0.953                      NA       
+4 Tumour_v_Ctrl miRNA     hsa-miR-215-5p hsa-mir-215-5p      NA                    -3.22      NA                     4.77e-15    NA                           1.70e-12
+5 Tumour_v_poly miRNA     hsa-miR-215-5p hsa-mir-215-5p      NA                    -1.87      NA                     2.36e- 6    NA                           3.37e- 5
+6 poly_v_Ctrl   miRNA     hsa-miR-215-5p hsa-mir-215-5p      NA                    -1.35      NA                     8.90e- 5    NA                           7.78e- 4
+
+
+### import the SPAR results and check lFC of two miRNAs
+```{r}
+DE_SPAR <- vroom("Chapter_2_2/SPAR/DEA_CRC_GRCh38_23_Jun_2022/DE_SPAR_vm_QW_TMM.txt")
+
+# check the two specific miRNAs that the article is focusing for SPAR results
+DE_SPAR %>%
+  filter(str_detect(smallRNA, "-1246|-215-5p")) %>%
+  select(-c( CI.L:P.Value, B))
+```
+
+####> A tibble: 3 x 5
+  contrast     smallRNA                                  logFC adj.P.Val GeneClass
+  <chr>        <chr>                                     <dbl>     <dbl> <chr>    
+1 CRC_v_ctrl   chr1:220117915:220117936:-:hsa-miR-215-5p -3.55  3.85e-14 mir-5p   
+2 CRC_v_Polyp  chr1:220117915:220117936:-:hsa-miR-215-5p -1.92  9.00e- 5 mir-5p   
+3 Polyp_v_ctrl chr1:220117915:220117936:-:hsa-miR-215-5p -1.63  2.09e- 5 mir-5p 
+
+The miR-1246 is not identified in SPAR results
+
+we will check if at the same position with the newer version can be found DE
+```{r}
+# check if we can find the same chromosome and start for another possible mirna name
+
+DE_SPAR %>%
+  separate("smallRNA", c("chr","start","end","strand","smallRNA","DQ"), sep = ":") %>%
+  filter(chr == "chr2", str_detect(GeneClass, "mir")) %>% 
+  arrange(start) # nope
+
+# check if we can find the same chromosome and start for another sncRNA name
+DE_SPAR %>%
+  separate("smallRNA", c("chr","start","end","strand","smallRNA","DQ"), sep = ":") %>%
+  filter(chr == "chr2", between(start,176600970, 176601052)) %>% 
+  arrange(start)# nope
+
+# check if we can find the same chromosome and start for another sncRNA name in initial counts
+initial_df <- readr::read_rds("Chapter_2_2/SPAR/EDA_CRC_GRCh38_23_Jun_2022_SPAR/initial_df.rds")
+initial_df %>%
+  separate("smallRNA", c("chr","start","end","strand","smallRNA","DQ"), sep = ":") %>%
+  filter(str_detect(smallRNA, "-1246")) %>% 
+  select(1:10)
+```
+#### A tibble: 2 × 10
+  chr   start     end       strand smallRNA     DQ    GeneClass    SRR12936664 SRR12936665 SRR12936666
+  <chr> <chr>     <chr>     <chr>  <chr>        <chr> <chr>              <dbl>       <dbl>       <dbl>
+1 chr2  176600979 176601052 -      hsa-mir-1246 NA    miRNAprimary           0           0           0
+2 chr2  176601023 176601042 -      hsa-miR-1246 NA    mir-5p3pno             0           0           0
+
+From this result we can see that the hsa-mir-1246 is not found expressed. 
+
+
+### How many miRNA and piRNA are DE with SPAR
+```{r}
+DE_SPAR_CRCvCTRL <- DE_SPAR %>% 
+  filter(contrast == "CRC_v_ctrl", adj.P.Val < 0.05) %>% 
+  separate("smallRNA", c("chr","start","end","strand","smallRNA","DQ"), sep = ":") 
+
+# how many miRNA are DE? 
+DE_SPAR_CRCvCTRL %>% 
+  filter(str_detect(GeneClass, "mir|miR")) %>%
+  count(GeneClass, sort = TRUE) # 147
+
+# how many piRNA are DE? 
+DE_SPAR_CRCvCTRL %>% 
+  filter(str_detect(GeneClass, "pi")) %>%
+  count(smallRNA, sort = TRUE) # 19
+```
+
+### How many miRNA and piRNA are DE with WIND
+```{r}
+DE_WIND_CRCvCTRL <- DE_WIND %>% 
+  filter(contrast == "Tumour_v_Ctrl", adj.P.Val < 0.05) %>% 
+  select(-c( CI.L:P.Value, B, Chr:seq_RNA))
+
+# how many miRNA are DE? 
+DE_WIND_CRCvCTRL %>% 
+  filter(str_detect(gene_type, "precursor|miRNA")) %>%
+  pivot_wider(names_from = quantification, 
+              values_from = c(logFC, adj.P.Val)) #700
+
+DE_WIND_CRCvCTRL %>% 
+  filter(str_detect(gene_type, "precursor|miRNA")) %>% 
+    count(quantification) # FC 616, salmon 284
+
+# how many piRNA are DE? 
+DE_WIND_CRCvCTRL %>% 
+  filter(str_detect(gene_type, "pi")) %>%
+  count(quantification, sort = TRUE) # FC 73, salmon 48
+```
+
+### Compare the DE miRNA found in WIND and SPAR in CRC vs CTRL
+```{r}
+ DE_SPAR_mirna <- DE_SPAR_CRCvCTRL %>%
+  filter(str_detect(GeneClass, "mir|miR")) %>%
+  mutate(smallRNA = tolower(smallRNA)) %>%
+  count(smallRNA ) %>% # 146 miRNA
+  pull(smallRNA)
+
+DE_WIND_CRCvCTRL %>%
+  filter( gene_type %in% c("precursor_RNA", "miRNA")) %>%
+  pivot_wider(names_from = quantification, values_from = c(logFC,adj.P.Val)) %>% #700
+  count(external_id) #external_id:694 #sncRNA_name:688
+
+DE_WIND_CRCvCTRL %>%
+  filter(gene_type %in% c("precursor_RNA", "miRNA")) %>%
+  mutate(external_id = tolower(external_id)) %>%
+  filter(str_detect(sncRNA_name, str_c(DE_SPAR_mirna, collapse = "|"))) %>%
+  pivot_wider(names_from = quantification, values_from = c(logFC,adj.P.Val)) %>% 
+  count(sncRNA_name, sort = T) # 100 common names
+
+# make the mirna WIND table to join
+mirna_wind_join <- DE_WIND_CRCvCTRL %>%
+  filter(gene_type %in% c("precursor_RNA", "miRNA")) %>%
+  mutate(external_id = tolower(external_id)) %>%
+  filter(str_detect(sncRNA_name, str_c(DE_SPAR_mirna, collapse = "|"))) %>%
+  pivot_wider(names_from = quantification, values_from = c(logFC,adj.P.Val)) %>%
+  rename_with(.fn = ~str_c("wind_", .), .cols = c(-contrast)) 
+
+# the mirna SPAR table to join
+
+mirna_SPAR_join <- DE_SPAR_CRCvCTRL %>%
+  filter(str_detect(GeneClass, "mir|miR")) %>%
+  unite(chr:strand, col = "GenRange", sep = "_") %>%
+  mutate(smallRNA = tolower(smallRNA)) %>%
+  distinct(smallRNA, .keep_all = TRUE) %>%
+  select(-c(contrast, DQ, CI.L:P.Value, B)) %>%
+  rename_with(.fn = ~str_c("SPAR_", .)) 
+
+# make a common table
+mirna_wind_join %>% 
+  inner_join(mirna_SPAR_join, by = c("wind_sncRNA_name" = "SPAR_smallRNA")) %>%
+  vroom_write("Chapter_2_2/DE_miRNA_common_SPAR_WIND_vm_QW_TMM.txt")
+```

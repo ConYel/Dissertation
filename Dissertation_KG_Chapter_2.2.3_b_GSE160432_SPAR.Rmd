@@ -1,0 +1,444 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 2: Data Analysis Workflow for small-RNAseq focused on piRNAs  
+
+## 2.2.3 b) GSE160432 dataset SPAR analysis
+
+Here we analyse the public dataset [GSE160432](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE160432) with SPAR in order to compare the results from the WIND workflow.
+
+### RUN SPAR
+```{bash}
+docker run --name spar --rm -ti -v "$(pwd)/my_data":/home/my_data congelos/spar
+
+ for file in my_data/samples/*trimmed.fastq.gz; do ./spar_pipeline/SPAR.sh $file ./my_data/results_file ./spar_pipeline/config.docker.hg38.sh  10;done 
+
+exit
+```
+
+Then we move to the docker container with rstudio server
+### R docker
+```{bash docker for R}
+docker run --rm -ti -v /root/Documenti/project/:/home/my_data/projects -p 8787:8787 -e PASSWORD=12345 -e USER=$USER -e USERID=$UID rocker_tidyverse_plus_de_pckages:v_3_14
+```
+
+#### libraries
+```{r}
+suppressPackageStartupMessages({
+  library('tidyverse') 
+  library('vroom')
+  library('plyranges')
+  library('tximport')
+  library('edgeR')
+  library('NOISeq')
+  library('rafalib')
+  library('pheatmap')
+  library('RColorBrewer')
+})
+```
+
+#### add todate
+```{r todate_of_analysis}
+todate <- format(Sys.time(), "%d_%b_%Y")
+```
+
+#### create the dir for the analysis
+```{r}
+my_basename <- file.path("Chapter_2_2/SPAR")## INPUT name of the main folder 
+my_exp <- "CRC" ## INPUT name of the analysis
+genome_input <- "GRCh38" ## INPUT genome version here
+my_tools <- "SPAR"
+dat_path <- file.path(my_basename, str_glue("EDA_{my_exp}_{genome_input}_{todate}_{my_tools}"))
+dat_path %>% dir.create(., recursive = TRUE)
+
+```
+
+this step cannot be reproduced as you have to run the SPAR workflow instead 
+there is a collapsed file these results included as RDS in the SPAR folder
+
+#### import data SPAR results to R
+```{r}
+path <- file.path(my_basename, "my_data", "results_file")
+
+smallRNA_files <- dir(path, full.names = TRUE,
+                      pattern = "smRNA_gene_expression.xls",
+                      recursive = TRUE)
+
+# load the list of files in one table -----
+initial_df <- vroom(smallRNA_files, id = "sample") %>%
+  rename(smallRNA = "#Gene") %>%
+  mutate(sample = str_remove(sample, ".trim.+") %>% basename()) %>%
+  select(-RPM) %>%
+  pivot_wider(names_from = sample, values_from = ReadCount) 
+
+#write the df
+initial_df %>% write_rds(str_c(dat_path, "/initial_df.rds"))
+
+# df with summarized GRs
+sum_GRs <- initial_df %>% 
+  separate("smallRNA", c("chr","start","end","strand","smallRNA","DQ"), sep = ":") %>%
+  unite(smallRNA, c(smallRNA, DQ)) %>% 
+  group_by(smallRNA, GeneClass) %>%
+  summarise(across(.cols = where(is.numeric), mean = mean))
+
+#write the df
+sum_GRs %>% write_rds(str_c(dat_path, "/summarized_GR_df.rds"))
+```
+
+
+from here it is reproducible
+
+#### import the targets file
+```{r}
+EDA_folder_wind <- file.path("Chapter_2_2/WIND/", "EDA_CRC_no_batch_GRCh38_17_Jun_2022")
+
+list_norm_dgls <- list.files(path = EDA_folder_wind, pattern = "list_norm_dgls.+rds",
+  recursive = TRUE, full.names = TRUE)
+
+# load salmon normalized files 
+fc_norm <- list_norm_dgls %>% 
+  unlist %>% 
+  str_detect("featureCounts") %>% 
+  list_norm_dgls[.] %>% 
+  read_rds()
+
+targets_df <- fc_norm$TMM$samples %>% 
+  as_tibble() %>% 
+  select(-c(lib.size, norm.factors, PropAssigned, star_paths:samples_fc))
+
+colors_df <- fc_norm$TMM$colours 
+
+rm(fc_norm, list_norm_dgls)
+
+initial_df <- read_rds("Chapter_2_2/SPAR/EDA_CRC_GRCh38_23_Jun_2022_SPAR/initial_df.rds")
+```
+
+#### make a dgelist object
+```{r}
+SPAR_dge <- initial_df %>%
+  select(-GeneClass) %>%
+  column_to_rownames("smallRNA") %>%
+  as.matrix() %>%
+  edgeR::DGEList(counts = .)
+
+# check if the matrix has the same colnames as the targets table
+identical(as.character(targets_file$sample_name),
+          colnames(SPAR_dge))
+
+SPAR_dge$samples <- SPAR_dge$samples %>% 
+  as_tibble(rownames = "sample_name") %>% 
+  select(-group) %>% 
+  left_join(targets_df)
+
+SPAR_dge$colours <- colors_df
+```
+
+#### 1. Create biodetection plot with NOISeq
+```{r biodetection plot}
+mybiotypes <- initial_df %>% 
+  select(smallRNA, gene_type = GeneClass) %>%
+  column_to_rownames("smallRNA")
+
+function_Noiseq_plots <- function(exp_data, plot_path){
+  mydata <- NOISeq::readData(data = exp_data, 
+  factors = as.data.frame(targets_file),
+  biotype = mybiotypes)
+  mybiodetection <- dat(mydata, k = 0, type = "biodetection")
+  pdf(file.path(plot_path, str_glue("NOISeq_biodetection_{todate}_{basename(plot_path)}.pdf")))
+  seq(ncol(exp_data)) %>% map(~explo.plot(mybiodetection, samples = .x),plottype = "boxplot")
+  dev.off()
+  mycountsbio <- dat(mydata, factor = NULL, type = "countsbio")
+  pdf(file.path(plot_path, str_glue("NOISeq_countsbio_{todate}_{basename(plot_path)}.pdf")))
+  seq(ncol(exp_data)) %>% map(~explo.plot(mycountsbio, 
+    samples = .x ,plottype = "boxplot"))
+  dev.off()
+}
+
+function_Noiseq_plots(SPAR_dge$counts, dat_path)
+```
+
+
+#### 2. Create the design matrix
+```{r design matrix}
+##the groups:
+Age_group <- targets_file$batch
+Sample <- targets_file$group
+gender <- targets_file$gender
+
+# the simple design
+design <- model.matrix(~0 + Sample)
+colnames(design) <- colnames(design) %>% 
+  str_remove("Sample") 
+
+rownames(design) <- targets_file$sample_name
+
+```
+
+#### 3. Perform Filtering: EdgeR
+```{r}
+keep.exprs <- filterByExpr.DGEList(SPAR_dge, design = design)
+SPAR_dge_filt <- SPAR_dge[keep.exprs,,keep.lib.sizes = FALSE] %>% 
+    write_rds(file.path(dat_path, str_glue("dgl_edger_filt_nobatch.rds")))
+```
+
+#### 4. Normalization
+```{r Normalization}
+function_EDA_RLE <- function(data, name){
+  EDASeq::plotRLE(data,
+        col = as.character(SPAR_dge_filt$colours$group_col),
+        outline=FALSE, las=3,
+        ylab="Relative Log Expression", 
+        cex.axis=1, cex.lab=1, main = str_glue("{name}"))
+      legend("topright",
+       legend = levels(as_factor(SPAR_dge_filt$samples$group)),
+       fill = levels(as_factor(SPAR_dge_filt$colours$group_col)),
+       bty="n",
+       cex = 0.5, inset = c(.01,.01))
+}
+
+function_norm <- function(dgl_fil_data, data_path){
+  # edgeR ----
+  norm_method <- list("none", "TMM", "TMMwsp", "RLE") %>% 
+    set_names(.)
+  edger_norm <- map(norm_method, ~calcNormFactors(dgl_fil_data, method = .x))
+  # limma-voom ----
+  pdf(file.path(data_path,str_glue("voom_plots.pdf")))
+  voom_norm <-  edger_norm[1:3] %>% 
+    map2(.y = c("quantile", rep("none",2)),
+      ~voom(.x, design = design,
+        plot = TRUE, normalize.method = .y)) %>% 
+    set_names("voom_Quantile","voom_TMM","voom_TMMwsp")
+  dev.off()
+  # limma-voom with quality weights ----
+  pdf(file.path(data_path,str_glue("voom_quality_weights_plots.pdf")))
+  voom_norm_QW <- edger_norm[1:3] %>% 
+    map2(.y = c("quantile", rep("none",2)),
+      ~voomWithQualityWeights(.x, design = design,
+        plot = TRUE, normalize.method = .y)) %>% 
+    set_names("voomQW_Quantile","voomQW_TMM","voomQW_TMMwsp")
+  dev.off()
+  # list of normalized data ----
+  norm_list <- c(edger_norm %>% map(~cpm(.x, normalized.lib.sizes = TRUE)),
+     list(
+    "voom_Quantile" = 2^voom_norm[[1]]$E,
+    "voom_TMM" = 2^voom_norm[[2]]$E,
+    "voom_TMMwsp" = 2^voom_norm[[3]]$E,
+    "voomQW_Quantile" = 2^voom_norm_QW[[1]]$E,
+    "voomQW_TMM" = 2^voom_norm_QW[[2]]$E,
+    "voomQW_TMMwsp" = 2^voom_norm_QW[[3]]$E))
+  pdf(file.path(data_path, str_glue("RLE_plots.pdf")))
+  norm_list %>%
+    imap(~function_EDA_RLE(.x,.y))
+  dev.off()
+  norm_list[2:4] %>% imap(~.x %>% 
+      as_tibble(rownames = "GeneIDs") %>% 
+        write_tsv(file = file.path(data_path, str_glue("norm_cpm_{.y}.txt"))))
+  c(edger_norm, voom_norm, voom_norm_QW)
+}
+
+SPAR_norm_dgls <- function_norm(SPAR_dge_filt, dat_path)
+
+# save the list with all normalized values (edgeR and limma-voom)-----
+  do_not_print <-write_rds(SPAR_norm_dgls, file = file.path(dat_path, str_glue("list_norm_dgls.rds")))
+```
+
+#### 5. Make h-clustering
+```{r Hierarchical clustering}
+function_clust <- function(dgl_norm_data, plot_path){
+  hc_methods <- c("ward.D2",
+                "complete",
+                "average")
+  
+  list_distc <- c(dgl_norm_data[1:4] %>%
+      map(~ cpm(.x, normalized.lib.sizes = TRUE, log=TRUE, prior.count=5)),
+      list("voom_Quantile" = dgl_norm_data[[5]]$E,
+      "voom_TMM"= dgl_norm_data[[6]]$E,
+      "voom_TMMwsp" = dgl_norm_data[[7]]$E,
+      "voomQW_Quantile" = dgl_norm_data[[8]]$E,
+      "voomQW_TMM"= dgl_norm_data[[9]]$E,
+      "voomQW_TMMwsp" = dgl_norm_data[[10]]$E)) %>% map(~dist(t(.x)))
+  #pheatmap start
+  list_distc_mat <- list_distc %>% map(~as.matrix(.x))
+  colours_pheat <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
+  pdf(file.path(plot_path, str_glue("distance_matrix_hclust.pdf")))
+  list_distc_mat %>% imap(~pheatmap(.x,
+           clustering_distance_rows = "euclidean",
+           clustering_distance_cols = "euclidean",
+           col = colours_pheat,
+           main = str_glue({.y})))
+  dev.off()
+  #pheatmap end
+  #list_distc <- log_cpm %>% map(~dist(t(.x)))
+  list_hc <- sapply(hc_methods, function(x) map(list_distc, ~hclust(.x,method = x)))
+  names(list_hc) <- rep(rownames(list_hc),times = ncol(list_hc))
+  
+  pdf(file.path(plot_path, str_glue("hierarchic_clust.pdf")))
+  for (i in seq_along(list_hc)) {
+       rafalib::myplclust(list_hc[[i]],
+       lab.col = as.character(SPAR_dge_filt$colours$group_col),  
+       xlab = NULL,
+       main = str_glue("{matrix(list_hc[[i]])[[7]]} - {matrix(list_hc[[i]])[[5]]} - {names(list_hc[i])}"))
+       legend("topright",
+       legend = levels(SPAR_dge_filt$samples$group),
+       fill = levels(as_factor(SPAR_dge_filt$colours$group_col)),  
+       bty="n",
+       cex = 0.9)
+       }
+  dev.off()
+}
+
+function_clust(SPAR_norm_dgls, dat_path)
+```
+
+#### 6. Make MDS plot
+```{r MDS plot}
+function_MDS <- function(dgl_norm_data, plot_path){
+  par(mar=c(6,5,2,1)+ 0.1)
+  pdf(file.path(plot_path, str_glue("MDS_plot.pdf")))
+  plotMDS(dgl_norm_data$TMM, 
+          labels = SPAR_dge_filt$samples$sample_name,
+          pch = 10,
+          cex = 0.7,
+    col = as.character(SPAR_dge_filt$colours$group_col), dim.plot = c(1,2))
+  legend("topright",
+       legend = levels(as_factor(SPAR_dge_filt$colours$group)),
+       fill = levels(as_factor(SPAR_dge_filt$colours$group_col)),
+       bty="n",
+       cex = 1.5, inset = c(.01,.09))
+  map2(c(3,1,2,2),c(4,3,3,4),
+  ~plotMDS(dgl_norm_data$TMM, labels = SPAR_dge_filt$samples$sample_name, pch = 10,
+    cex = 0.7,
+    col = as.character(SPAR_dge_filt$colours$group_col), 
+    dim.plot = c(.x,.y),
+    main = str_glue("MDS plot {names(dgl_norm_data[2])}"))
+  )
+  dev.off()
+}
+
+function_MDS(SPAR_norm_dgls, dat_path)
+```
+
+### Differential Expression Analysis
+
+#### 1. Load libraries
+```{r load libraries, }
+suppressPackageStartupMessages({
+  library('tidyverse') 
+  library('edgeR')
+})
+```
+
+#### Make the directory for the results of the DE analysis
+```{r make dirs}
+dat_path <- file.path(my_basename, str_glue("DEA_{my_exp}_{genome_input}_{todate}"))
+dat_path %>% dir.create(., recursive = TRUE)
+```
+
+#### 2. Extract normalized objects 
+
+We will work with TMM normalization and TMM voom with quality weights
+```{r extract norm dgl}
+SPAR_edgR_TMM <- SPAR_norm_dgls[["TMM"]]
+SPAR_vm_QW_TMM <- SPAR_norm_dgls[["voomQW_TMM"]]
+```
+
+#### 3. Create the design matrix
+
+If we load the voom object we can extract the design matrix otherwise we can create it again from the dgl object
+```{r design}
+#1 voom object
+design <- SPAR_vm_QW_TMM$design 
+```
+
+#### 4. edgeR
+Perform the analysis with edgeR TMM normalization
+for both salmon and featurecounts
+```{r edgeR_DE, eval = FALSE}
+# makeContrasts ----
+con_mat <- makeContrasts(
+CRC_v_ctrl = CRC - healthy,
+CRC_v_Polyp = CRC - Polyp,
+Polyp_v_ctrl = Polyp - healthy,
+  levels = design)
+
+SPAR_edgR_TMM <- estimateDisp(SPAR_edgR_TMM, design = design, robust=TRUE)
+SPAR_edgR_TMM <- glmQLFit(SPAR_edgR_TMM, design, robust = TRUE)
+
+DE_SPAR_edgR_TMM <- con_mat %>% 
+  colnames() %>% 
+  set_names() %>% 
+ map(~glmQLFTest(SPAR_edgR_TMM, contrast = con_mat[,.x]) %>% 
+  topTags(n = nrow(.), adjust.method = "BH", 
+          sort.by = "PValue", p.value = 1) %>% 
+   .$table %>% 
+  as_tibble(rownames = "smallRNA") ) %>% 
+  bind_rows(.id = "contrast")
+
+hist(DE_SPAR_edgR_TMM$PValue, breaks = 0:20/20,
+     col = "grey50", border = "white")
+
+salmon_edgeR_TMM_p <- DE_SPAR_edgR_TMM %>% 
+  mutate(salmon_edgeR = if_else(
+    FDR >= 0.05, 0, if_else(
+      logFC > 0, 1, -1
+    )
+  )) %>% 
+  select(smallRNA , salmon_edgeR )
+
+DE_SPAR_edgR_TMM %>%
+  left_join(select(initial_df, smallRNA, GeneClass)) %>%
+  write_tsv(file.path(dat_path, "DE_SPAR_edgR_TMM.txt"))
+
+```
+
+#### 5. Limma 
+```{r limma_DE}
+# design ----
+con_mat <- makeContrasts(
+CRC_v_ctrl = CRC - healthy,
+CRC_v_Polyp = CRC - Polyp,
+Polyp_v_ctrl = Polyp - healthy,
+  levels = design)
+
+## featureCounts ----
+
+SPAR_vm_QW_TMM <- lmFit(SPAR_vm_QW_TMM, design = design)
+SPAR_vm_QW_TMM <- contrasts.fit(SPAR_vm_QW_TMM, con_mat)
+SPAR_vm_QW_TMM <- eBayes(SPAR_vm_QW_TMM, robust = TRUE)
+
+DE_SPAR_vm_QW_TMM <- con_mat %>% colnames() %>% set_names() %>% 
+ map(~SPAR_vm_QW_TMM %>% topTable(., coef = .x,
+                             confint = TRUE,
+                             number = nrow(.),
+                             adjust.method = "fdr",
+                             sort.by = "p") %>% 
+  as_tibble(rownames = "smallRNA")) %>%
+  bind_rows(.id = "contrast")  %>% 
+  left_join(select(initial_df, smallRNA, GeneClass))
+
+DE_SPAR_vm_QW_TMM %>%
+  write_tsv(file.path(dat_path, "DE_SPAR_vm_QW_TMM.txt"))
+```
+
+
