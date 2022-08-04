@@ -1,0 +1,126 @@
+---
+title: "Role of Piwi-piRNA pathway in somatic and cancer cells"
+author: "__Konstantinos Geles__"
+date: "Wed Jul 13 2022, Last Update: `r format(Sys.Date(), '%a %b %d %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook: null
+editor_options:
+  chunk_output_type: console
+subtitle: UMG PhD Programme of Molecular and Translational Oncology - Circle XXXIV
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+This project contains the scripting part of the Doctoral Dissertation of **Konstantinos Geles** with doi:   
+
+# CHAPTER 1: Role of the PIWI-piRNA pathway in Colorectal Cancer (CRC)  
+  
+## 1.2 Evaluation of piRNA expression in CRC cell lines and comparison to germline 
+
+NOT REPRODUCIBLE without the data 
+## Preprocessing of the samples
+We perform quality control(QC) on the fastq files to get basic information
+about the samples
+We work with the __[Fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)__ tool to perform QC but you can use whichever QC tool you prefer.
+```{bash preprocessing}
+docker run --rm -ti -v $(pwd):/home/my_data  congelos/sncrna_workflow
+
+SAMPLES_FOLDER="my_data/projects/the_pirnas_in_CC/rnaseq_cell_lines/samples"
+ANALYSIS_FOLDER="my_data/projects/the_pirnas_in_CC/rnaseq_cell_lines"
+
+mkdir -p "${SAMPLES_FOLDER}" "${ANALYSIS_FOLDER}"/qc_before_trim "${ANALYSIS_FOLDER}"/qc_after_trim  "${ANALYSIS_FOLDER}"/samples_trim "${ANALYSIS_FOLDER}"/star
+
+'fastqc' --threads 4 --outdir="${ANALYSIS_FOLDER}"/qc_before_trim \
+"${SAMPLES_FOLDER}"/*/*fastq.gz 
+
+# adapter trimming
+for dir in "${SAMPLES_FOLDER}"/*; 
+do 
+samp=`basename ${dir}`;  
+echo "Processing sample ${samp} start: $(date)"; 
+ ./TrimGalore-0.6.6/trim_galore --quality 15 --fastqc --paired --cores 6 -o "${ANALYSIS_FOLDER}"/samples_trim --path_to_cutadapt "/root/miniconda/bin/cutadapt" ${dir}/*_R1_001.fastq.gz ${dir}/*_R2_001.fastq.gz
+echo "end:$(date)";
+done
+
+'fastqc' --threads 4 --outdir="${ANALYSIS_FOLDER}"/qc_after_trim \
+"${ANALYSIS_FOLDER}"/samples_trim/*/*fq.gz 
+
+# alignment
+for dir in "${ANALYSIS_FOLDER}"/samples_trim/*; 
+do  
+samp=`basename ${dir}`;
+echo "Processing sample ${samp} start: $(date)";   
+echo STAR --genomeDir "my_data/projects/human_data/indexes/GRCh38_v34_public_STAR"  --genomeLoad LoadAndKeep --limitBAMsortRAM 40000000000 --readFilesIn ${dir}/*_R1_001_val_1.fq.gz ${dir}/*_R2_001_val_2.fq.gz --readFilesCommand zcat --runThreadN 10 --outSAMattributes NH HI NM MD --outSAMtype BAM SortedByCoordinate --outReadsUnmapped Fastx --outFileNamePrefix "${ANALYSIS_FOLDER}/star/${samp}_align/${samp}_"; 
+echo "end:$(date)"; 
+done
+
+exit
+```
+
+### R docker
+```{bash docker for R}
+docker run --rm -ti -v /root/Documenti/project/:/home/my_data/projects -p 8787:8787 -e PASSWORD=12345 -e USER=$USER -e USERID=$UID rocker_tidyverse_plus_de_pckages:v_3_14
+#cp my_data/projects/rstudio-prefs.json ../sammy/.config/rstudio/rstudio-prefs.json
+```
+
+From here on we work on Rstudio using a browser. 
+we input http://localhost:8787/ on browser, 0 for username and 12345 for password.
+
+### iv. __[featureCounts](http://subread.sourceforge.net/)__
+```{r featureCounts}
+library(Rsubread)
+library(tidyverse)
+
+ANALYSIS_FOLDER <- file.path("rnaseq_cell_lines")
+  
+list.BAM <- list.files(path = file.path(ANALYSIS_FOLDER, "star"), 
+                       pattern = ".bam$", 
+                       recursive = TRUE, 
+                       full.names = TRUE) %>%
+  str_subset("COLO|TY1|Pool|SW1")
+
+path_gtf <- file.path("../human_data","gencode.v34.primary_assembly.annotation.gtf.gz")
+
+todate <- format(Sys.time(), "%d_%b_%Y")
+
+fc <- featureCounts(files = list.BAM,
+                    annot.ext =  path_gtf,
+                    #isGTFAnnotationFile = TRUE,
+                    GTF.attrType.extra = c("gene_type", "gene_name"),
+                    isGTFAnnotationFile = TRUE,
+                    countMultiMappingReads = FALSE,
+                    isPairedEnd = TRUE,
+                    nthreads = 10,
+                    strandSpecific = 2)
+
+fc %>% 
+  write_rds(file = str_glue(file.path(ANALYSIS_FOLDER, "feature_counts_"), 
+                            "CRC_cell_lines_{todate}.rds"))
+```
+
+### Import results and normalize them
+```{r}
+library(edgeR)
+dgl_fc <- edgeR::featureCounts2DGEList(fc)
+dgl_fc$samples$group <- rownames(dgl_fc$samples) %>% 
+  str_remove_all("Pool_|_.+|EMPTY.+")
+dgl_fc <- calcNormFactors(dgl_fc, method = "TMM")
+CRC_lines_CPM <- cpm(dgl_fc, normalized.lib.sizes = TRUE) %>%
+  as_tibble(rownames = "transcript") %>%
+  left_join(dgl_fc$genes %>% as_tibble(rownames = "transcript"))
+
+CRC_lines_CPM %>% vroom::vroom_write(file = 
+                                       str_glue(file.path(ANALYSIS_FOLDER,
+                                                          "CRC_cell_lines_RNA_seq_CPM"), 
+                            "_{todate}.txt"))
+```
+
